@@ -1,7 +1,6 @@
 <script setup>
 defineProps({
   word: { type: String, default: "" },
-  url: { type: String, default: "" },
 });
 const emit = defineEmits(["back"]);
 </script>
@@ -12,8 +11,5 @@ const emit = defineEmits(["back"]);
       <button class="wallish-clip__back" type="button" @click="emit('back')">‹ 返回</button>
       <h1 class="wallish-clip__title">看单词 {{ word }}</h1>
     </header>
-    <div class="wallish-clip__host">
-      <iframe class="wallish-clip__frame" :src="url" title="看单词" />
-    </div>
   </main>
 </template>

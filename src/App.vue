@@ -153,8 +153,8 @@ async function saveWordBox(nextBox) {
 
 async function watchWord() {
   try {
-    const url = await invoke("watch_word");
-    clip.value = { word: snapshot.value && snapshot.value.word, url };
+    await invoke("watch_word");
+    clip.value = { word: snapshot.value && snapshot.value.word };
     settingsOpen.value = false;
   } catch (err) {
     error.value = errorText(err, "打不开看单词");
@@ -180,7 +180,7 @@ function openDictionary() {
 </script>
 
 <template>
-  <ClipPage v-if="clip" :word="clip.word" :url="clip.url" @back="backHome" />
+  <ClipPage v-if="clip" :word="clip.word" @back="backHome" />
   <FavoritesPage
     v-else-if="favoritesOpen"
     :items="favorites"

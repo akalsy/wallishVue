@@ -9,11 +9,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::webview::WebviewBuilder;
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 
 static QUITTING: AtomicBool = AtomicBool::new(false);
+
+const CLIP_LABEL: &str = "clip";
+// 和 .wallish-clip__bar 的 height 对齐，子 webview 从这条下面开始铺。
+const CLIP_BAR_PX: f64 = 52.0;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -726,8 +731,43 @@ async fn use_favorite(app: AppHandle, state: State<'_, AppState>, id: String) ->
     plate_from_clean(&dir, &core.saved, &clean)
 }
 
+fn clip_frame(window: &tauri::Window) -> Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)> {
+    let outer = window.outer_size().ok()?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    // 子 webview 从窗口外框顶上算起。macOS 上 outer/inner 位置差是 0，标题栏仍占大约 28pt。
+    let chrome = match (window.outer_position(), window.inner_position()) {
+        (Ok(outer_pos), Ok(inner_pos)) => {
+            let delta = inner_pos.y.saturating_sub(outer_pos.y).max(0) as u32;
+            if delta == 0 {
+                (28.0 * scale).round() as u32
+            } else {
+                delta
+            }
+        }
+        _ => (28.0 * scale).round() as u32,
+    };
+    let bar = (CLIP_BAR_PX * scale).round() as u32;
+    let y = chrome + bar;
+    let height = outer.height.saturating_sub(y).max(1);
+    Some((
+        tauri::PhysicalPosition::new(0, y as i32),
+        tauri::PhysicalSize::new(outer.width.max(1), height),
+    ))
+}
+
+fn place_clip(window: &tauri::Window) {
+    let Some(clip) = window.app_handle().get_webview(CLIP_LABEL) else {
+        return;
+    };
+    let Some((position, size)) = clip_frame(window) else {
+        return;
+    };
+    let _ = clip.set_position(position);
+    let _ = clip.set_size(size);
+}
+
 #[tauri::command]
-async fn watch_word(window: WebviewWindow, state: State<'_, AppState>) -> Result<String, String> {
+async fn watch_word(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
     let word = {
         let mut core = state.core.lock().await;
         let word = core.saved.word.clone().ok_or_else(|| "还没有单词".to_string())?;
@@ -744,12 +784,30 @@ async fn watch_word(window: WebviewWindow, state: State<'_, AppState>) -> Result
         word
     };
     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(1080, 760)));
-    let title = format!("看单词 {word}");
-    let _ = window.set_title(&title);
-    Ok(format!(
-        "https://www.playphrase.me/#/reels/en?source=custom-search&q={}&translate-direction=zh-cn&ct=phrases",
-        urlencoding_min(&word)
-    ))
+    let _ = window.set_title(&format!("看单词 {word}"));
+    // 窗口尺寸是异步生效的。子 webview 创建后改大小不会跟着变，所以等它变完再贴。
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        if window.inner_size().map(|size| size.width >= 1000).unwrap_or(false) {
+            break;
+        }
+    }
+    // PlayPhrase 带 X-Frame-Options: SAMEORIGIN，放进 iframe 会被留白。
+    // 直接打开成窗口里的页面，这个限制不会生效。
+    let url: tauri::Url = format!("https://www.playphrase.me/reels/en/zh-cn/{}/", urlencoding_min(&word))
+        .parse()
+        .map_err(|err| format!("地址无效（{err}）"))?;
+    if let Some(existing) = app.get_webview(CLIP_LABEL) {
+        existing.navigate(url).map_err(|err| err.to_string())?;
+        place_clip(&window.as_ref().window());
+    } else {
+        let parent = window.as_ref().window();
+        let (position, size) = clip_frame(&parent).ok_or_else(|| "窗口尺寸还没准备好".to_string())?;
+        parent
+            .add_child(WebviewBuilder::new(CLIP_LABEL, WebviewUrl::External(url)), position, size)
+            .map_err(|err| err.to_string())?;
+    }
+    Ok(())
 }
 
 fn urlencoding_min(value: &str) -> String {
@@ -764,7 +822,10 @@ fn urlencoding_min(value: &str) -> String {
 }
 
 #[tauri::command]
-async fn close_clip(window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+async fn close_clip(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(clip) = app.get_webview(CLIP_LABEL) {
+        let _ = clip.close();
+    }
     let mut core = state.core.lock().await;
     if let Some(home) = core.home.take() {
         let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(home.x, home.y)));
@@ -845,13 +906,17 @@ pub fn run() {
             let _ = tray.build(app);
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 if !QUITTING.load(Ordering::SeqCst) {
                     api.prevent_close();
                     let _ = window.hide();
                 }
             }
+            tauri::WindowEvent::Resized(_) if window.label() == "main" => {
+                place_clip(window);
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
