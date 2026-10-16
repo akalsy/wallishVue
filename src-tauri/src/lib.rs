@@ -1,0 +1,873 @@
+mod fetch;
+mod image_ops;
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
+use tokio::sync::Mutex;
+
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WordBox {
+    position: String,
+    background: String,
+    size: String,
+    caption: bool,
+}
+
+impl Default for WordBox {
+    fn default() -> Self {
+        Self {
+            position: "bottom".into(),
+            background: "#1f2a36".into(),
+            size: "medium".into(),
+            caption: true,
+        }
+    }
+}
+
+fn normalize_word_box(value: &serde_json::Value) -> WordBox {
+    let mut box_ = WordBox::default();
+    if let Some(position) = value.get("position").and_then(|item| item.as_str()) {
+        let position = match position {
+            "top-left" | "top-right" => "top",
+            "bottom-left" | "bottom-right" => "bottom",
+            other => other,
+        };
+        if matches!(position, "top" | "center" | "bottom" | "left" | "right") {
+            box_.position = position.into();
+        }
+    }
+    if let Some(background) = value.get("background").and_then(|item| item.as_str()) {
+        if background.len() == 7 && background.starts_with('#') && background[1..].chars().all(|ch| ch.is_ascii_hexdigit()) {
+            box_.background = background.to_lowercase();
+        }
+    }
+    if let Some(size) = value.get("size").and_then(|item| item.as_str()) {
+        if matches!(size, "small" | "medium" | "large") {
+            box_.size = size.into();
+        }
+    }
+    box_.caption = value.get("caption").and_then(|item| item.as_bool()).unwrap_or(true);
+    box_
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedState {
+    word: Option<String>,
+    dictionary_url: Option<String>,
+    audio_url: Option<String>,
+    copyright: Option<String>,
+    copyright_url: Option<String>,
+    image_id: Option<String>,
+    image_path: Option<String>,
+    caption_lines: Option<Vec<String>>,
+    source: String,
+    favorite_id: Option<String>,
+    word_box: WordBox,
+    random: bool,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    photo_url: Option<String>,
+}
+
+impl Default for SavedState {
+    fn default() -> Self {
+        Self {
+            word: None,
+            dictionary_url: None,
+            audio_url: None,
+            copyright: None,
+            copyright_url: None,
+            image_id: None,
+            image_path: None,
+            caption_lines: None,
+            source: "bing".into(),
+            favorite_id: None,
+            word_box: WordBox::default(),
+            random: false,
+            error: None,
+            photo_url: None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewState {
+    word: Option<String>,
+    dictionary_url: Option<String>,
+    copyright: Option<String>,
+    image_data_url: Option<String>,
+    word_box: WordBox,
+    favorited: bool,
+    error: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Plate {
+    view: ViewState,
+    paint: bool,
+    clean_base64: String,
+    lines: Vec<String>,
+    word_box: WordBox,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FavoriteItem {
+    id: String,
+    word: String,
+    copyright: String,
+    source: String,
+    thumb_url: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FavoriteRecord {
+    id: String,
+    word: Option<String>,
+    dictionary_url: Option<String>,
+    audio_url: Option<String>,
+    copyright: Option<String>,
+    copyright_url: Option<String>,
+    image_id: Option<String>,
+    caption_lines: Option<Vec<String>>,
+    source: String,
+    word_box: WordBox,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CustomPreview {
+    name: String,
+    image_data_url: String,
+    source_width: u32,
+    source_height: u32,
+    target_width: u32,
+    target_height: u32,
+}
+
+struct PendingCustom {
+    path: PathBuf,
+    name: String,
+    target_width: u32,
+    target_height: u32,
+}
+
+struct HomeBounds {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+struct Core {
+    saved: SavedState,
+    pending: Option<PendingCustom>,
+    home: Option<HomeBounds>,
+}
+
+struct AppState {
+    core: Mutex<Core>,
+}
+
+fn data_url(bytes: &[u8]) -> String {
+    format!(
+        "data:image/jpeg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
+fn decode_jpeg(value: &str) -> Result<Vec<u8>, String> {
+    let payload = value.split(',').next_back().unwrap_or(value);
+    base64::engine::general_purpose::STANDARD
+        .decode(payload.trim())
+        .map_err(|_| "壁纸图片无法打开".to_string())
+}
+
+fn app_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|err| err.to_string())?;
+    fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    Ok(dir)
+}
+
+fn read_saved(dir: &Path) -> SavedState {
+    let path = dir.join("state.json");
+    let Ok(text) = fs::read_to_string(path) else {
+        return SavedState::default();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return SavedState::default();
+    };
+    let mut saved = serde_json::from_value::<SavedState>(value.clone()).unwrap_or_default();
+    saved.word_box = normalize_word_box(value.get("wordBox").unwrap_or(&serde_json::Value::Null));
+    saved.copyright = saved.copyright.map(|text| fetch::restore_exif_text(&text));
+    saved
+}
+
+fn write_saved(dir: &Path, saved: &SavedState) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(saved).map_err(|err| err.to_string())?;
+    fs::write(dir.join("state.json"), text).map_err(|err| err.to_string())
+}
+
+fn favorites_path(dir: &Path) -> PathBuf {
+    dir.join("favorites.json")
+}
+
+fn favorites_dir(dir: &Path) -> PathBuf {
+    dir.join("favorites")
+}
+
+fn load_favorites(dir: &Path) -> Vec<FavoriteRecord> {
+    let Ok(text) = fs::read_to_string(favorites_path(dir)) else {
+        return Vec::new();
+    };
+    let mut items: Vec<FavoriteRecord> = serde_json::from_str(&text).unwrap_or_default();
+    for item in &mut items {
+        item.copyright = item.copyright.as_deref().map(fetch::restore_exif_text);
+    }
+    items
+}
+
+fn save_favorites(dir: &Path, items: &[FavoriteRecord]) -> Result<(), String> {
+    fs::write(favorites_path(dir), serde_json::to_string(items).map_err(|err| err.to_string())?).map_err(|err| err.to_string())
+}
+
+fn current_favorite<'a>(saved: &SavedState, items: &'a [FavoriteRecord]) -> Option<&'a FavoriteRecord> {
+    if let Some(id) = &saved.favorite_id {
+        if let Some(hit) = items.iter().find(|item| &item.id == id) {
+            return Some(hit);
+        }
+    }
+    if saved.source != "custom" {
+        if let Some(image_id) = &saved.image_id {
+            return items
+                .iter()
+                .find(|item| item.source != "custom" && item.image_id.as_deref() == Some(image_id));
+        }
+    }
+    None
+}
+
+fn preview_file(dir: &Path, saved: &SavedState) -> Option<PathBuf> {
+    let composed = dir.join("wallpaper-composed.jpg");
+    if composed.exists() {
+        return Some(composed);
+    }
+    saved.image_path.as_ref().map(PathBuf::from).filter(|path| path.exists())
+}
+
+fn view_of(dir: &Path, saved: &SavedState) -> ViewState {
+    let items = load_favorites(dir);
+    let image_data_url = preview_file(dir, saved).and_then(|path| fs::read(path).ok()).map(|bytes| data_url(&bytes));
+    ViewState {
+        word: saved.word.clone(),
+        dictionary_url: saved.dictionary_url.clone(),
+        copyright: saved.copyright.clone(),
+        image_data_url,
+        word_box: saved.word_box.clone(),
+        favorited: current_favorite(saved, &items).is_some(),
+        error: saved.error.clone(),
+    }
+}
+
+fn empty_plate(view: ViewState) -> Plate {
+    let word_box = view.word_box.clone();
+    Plate {
+        view,
+        paint: false,
+        clean_base64: String::new(),
+        lines: Vec::new(),
+        word_box,
+    }
+}
+
+fn wallpaper_size(window: &WebviewWindow) -> (u32, u32) {
+    let Some(monitor) = window.primary_monitor().ok().flatten() else {
+        return (1920, 1080);
+    };
+    let size = monitor.size();
+    (size.width.max(1280), size.height.max(720))
+}
+
+fn set_mac_wallpaper(dir: &Path, image: &Path) -> Result<PathBuf, String> {
+    if cfg!(not(target_os = "macos")) {
+        return Err("这版试用只会在 macOS 上更换桌面壁纸".into());
+    }
+    let millis = SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_millis()).unwrap_or(0);
+    let shown = dir.join(format!("wallpaper_show_{millis}.jpg"));
+    fs::copy(image, &shown).map_err(|err| err.to_string())?;
+    let script = format!(
+        "tell application \"System Events\" to set picture of every desktop to POSIX file \"{}\"",
+        shown.display().to_string().replace('"', "\\\"")
+    );
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() { "设置桌面失败".into() } else { detail });
+    }
+    if let Ok(names) = fs::read_dir(dir) {
+        for name in names.flatten() {
+            let path = name.path();
+            let file_name = path.file_name().and_then(|item| item.to_str()).unwrap_or("");
+            if file_name.starts_with("wallpaper_show_") && path != shown {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    Ok(shown)
+}
+
+fn plate_from_clean(dir: &Path, saved: &SavedState, clean: &Path) -> Result<Plate, String> {
+    let lines = if saved.caption_lines.as_ref().map(|items| !items.is_empty()).unwrap_or(false) {
+        saved.caption_lines.clone().unwrap_or_default()
+    } else if let Some(word) = &saved.word {
+        vec![word.clone()]
+    } else {
+        Vec::new()
+    };
+    let paint = saved.word_box.caption && !lines.is_empty();
+    if !paint {
+        let composed = dir.join("wallpaper-composed.jpg");
+        fs::copy(clean, &composed).map_err(|err| err.to_string())?;
+        set_mac_wallpaper(dir, &composed)?;
+        return Ok(empty_plate(view_of(dir, saved)));
+    }
+    let bytes = fs::read(clean).map_err(|err| err.to_string())?;
+    Ok(Plate {
+        view: view_of(dir, saved),
+        paint: true,
+        clean_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+        lines,
+        word_box: saved.word_box.clone(),
+    })
+}
+
+async fn ensure_caption(saved: &mut SavedState) -> Vec<String> {
+    if let Some(lines) = &saved.caption_lines {
+        if !lines.is_empty() {
+            return lines.clone();
+        }
+    }
+    let fetched = fetch::fetch_caption(saved.image_id.as_deref().unwrap_or("")).await;
+    let lines = if fetched.is_empty() {
+        saved.word.clone().map(|word| vec![word]).unwrap_or_default()
+    } else {
+        fetched
+    };
+    saved.caption_lines = Some(lines.clone());
+    lines
+}
+
+async fn ensure_clean(dir: &Path, saved: &SavedState) -> Result<PathBuf, String> {
+    if saved.source == "custom" {
+        let custom = dir.join("wallpaper-custom.jpg");
+        if !custom.exists() {
+            return Err("自定义图片不见了，请重新选择".into());
+        }
+        return Ok(custom);
+    }
+    let image_id = saved.image_id.clone().unwrap_or_default();
+    if image_id.is_empty() {
+        return Err("这张壁纸没有原图".into());
+    }
+    let clean = dir.join("wallpaper-clean.jpg");
+    let marker_path = dir.join("wallpaper-clean.txt");
+    let marker = fs::read_to_string(&marker_path).unwrap_or_default();
+    if marker == format!("bing:{image_id}") && clean.exists() {
+        return Ok(clean);
+    }
+    let images = fetch::list_recent_bing(if saved.random { 8 } else { 1 }).await;
+    let url = fetch::find_clean(&images, saved.copyright.as_deref().unwrap_or(""), !saved.random)
+        .ok_or_else(|| "这张壁纸不在最近 8 天里".to_string())?;
+    let bytes = fetch::download_bytes(url, 15).await?;
+    let part = dir.join("wallpaper-clean.jpg.part");
+    fs::write(&part, &bytes).map_err(|err| err.to_string())?;
+    fs::rename(&part, &clean).map_err(|err| err.to_string())?;
+    fs::write(&marker_path, format!("bing:{image_id}")).map_err(|err| err.to_string())?;
+    Ok(clean)
+}
+
+#[tauri::command]
+async fn get_state(app: AppHandle, state: State<'_, AppState>) -> Result<ViewState, String> {
+    let dir = app_dir(&app)?;
+    let core = state.core.lock().await;
+    Ok(view_of(&dir, &core.saved))
+}
+
+async fn fetch_past_photo(
+    images: &[fetch::BingImage],
+    copyright: &str,
+    avoid_copyright: &str,
+    avoid_url: &str,
+    previous: &[u8],
+) -> Result<(String, Vec<u8>), String> {
+    let first = fetch::pick_recent(images, copyright, avoid_copyright, avoid_url)
+        .ok_or_else(|| "没有拿到 Bing 壁纸".to_string())?;
+    let start = images.iter().position(|image| image.url == first).unwrap_or(0);
+    let mut fallback: Option<(String, Vec<u8>)> = None;
+    for offset in 0..images.len() {
+        let image = &images[(start + offset) % images.len()];
+        if !avoid_url.is_empty() && image.url == avoid_url {
+            continue;
+        }
+        let Ok(bytes) = fetch::download_bytes(&image.url, 15).await else {
+            continue;
+        };
+        if fallback.is_none() {
+            fallback = Some((image.url.clone(), bytes.clone()));
+        }
+        if previous.is_empty() || bytes != previous {
+            return Ok((image.url.clone(), bytes));
+        }
+    }
+    fallback.ok_or_else(|| "没有拿到 Bing 壁纸".to_string())
+}
+
+#[tauri::command]
+async fn switch_wallpaper(app: AppHandle, state: State<'_, AppState>, random: bool) -> Result<Plate, String> {
+    let dir = app_dir(&app)?;
+    let mut core = state.core.lock().await;
+    let meta = fetch::fetch_word_meta(random).await?;
+    let caption_task = fetch::fetch_caption(meta.image_id.as_deref().unwrap_or(""));
+    let word_copyright = meta.copyright.clone().unwrap_or_default();
+    let avoid_copyright = core.saved.copyright.clone().unwrap_or_default();
+    let avoid_url = core.saved.photo_url.clone().unwrap_or_default();
+    let previous = fs::read(dir.join("wallpaper-clean.jpg")).unwrap_or_default();
+    let photo_task = async move {
+        let images = if random {
+            fetch::list_recent_bing(8).await
+        } else {
+            fetch::list_recent_bing(1).await
+        };
+        if random {
+            fetch_past_photo(&images, &word_copyright, &avoid_copyright, &avoid_url, &previous).await
+        } else {
+            let url = fetch::find_clean(&images, "", true)
+                .ok_or_else(|| "没有拿到 Bing 壁纸".to_string())?
+                .to_string();
+            let bytes = fetch::download_bytes(&url, 15).await?;
+            Ok((url, bytes))
+        }
+    };
+    let (lines, photo) = tokio::join!(caption_task, photo_task);
+    let (photo_url, bytes) = photo?;
+    let image_id = meta.image_id.clone().ok_or_else(|| "没有拿到单词".to_string())?;
+    let clean = dir.join("wallpaper-clean.jpg");
+    let part = dir.join("wallpaper-clean.jpg.part");
+    fs::write(&part, &bytes).map_err(|err| err.to_string())?;
+    fs::rename(&part, &clean).map_err(|err| err.to_string())?;
+    fs::write(dir.join("wallpaper-clean.txt"), format!("bing:{image_id}")).map_err(|err| err.to_string())?;
+    let word_box = core.saved.word_box.clone();
+    core.saved = SavedState {
+        word: meta.word,
+        dictionary_url: meta.dictionary_url,
+        audio_url: meta.audio_url,
+        copyright: meta.copyright,
+        copyright_url: meta.copyright_url,
+        image_id: Some(image_id),
+        image_path: Some(clean.display().to_string()),
+        caption_lines: if lines.is_empty() { None } else { Some(lines) },
+        source: "bing".into(),
+        favorite_id: None,
+        word_box,
+        random,
+        error: None,
+        photo_url: Some(photo_url),
+    };
+    write_saved(&dir, &core.saved)?;
+    plate_from_clean(&dir, &core.saved, &clean)
+}
+
+#[tauri::command]
+async fn publish_jpeg(app: AppHandle, state: State<'_, AppState>, jpeg_base64: String) -> Result<ViewState, String> {
+    let dir = app_dir(&app)?;
+    let bytes = decode_jpeg(&jpeg_base64)?;
+    let composed = dir.join("wallpaper-composed.jpg");
+    fs::write(&composed, bytes).map_err(|err| err.to_string())?;
+    set_mac_wallpaper(&dir, &composed)?;
+    let mut core = state.core.lock().await;
+    core.saved.error = None;
+    write_saved(&dir, &core.saved)?;
+    Ok(view_of(&dir, &core.saved))
+}
+
+#[tauri::command]
+async fn set_word_box(app: AppHandle, state: State<'_, AppState>, word_box: WordBox) -> Result<Plate, String> {
+    let dir = app_dir(&app)?;
+    let mut core = state.core.lock().await;
+    core.saved.word_box = normalize_word_box(&serde_json::to_value(&word_box).unwrap_or_default());
+    let lines = ensure_caption(&mut core.saved).await;
+    core.saved.caption_lines = Some(lines);
+    write_saved(&dir, &core.saved)?;
+    let clean = ensure_clean(&dir, &core.saved).await?;
+    plate_from_clean(&dir, &core.saved, &clean)
+}
+
+#[tauri::command]
+async fn preview_wallpaper(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>) -> Result<Option<CustomPreview>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("图片", &["jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "tif", "tiff"])
+        .blocking_pick_file();
+    let Some(file) = picked else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|_| "这张图片没有打开".to_string())?;
+    let bytes = fs::read(&path).map_err(|_| "这张图片没有打开".to_string())?;
+    let image = image_ops::limit_edge(image_ops::open_image(&bytes)?);
+    let (source_width, source_height) = (image.width(), image.height());
+    let (target_width, target_height) = wallpaper_size(&window);
+    let dir = app_dir(&app)?;
+    let pending = dir.join("wallpaper-custom-pending.jpg");
+    fs::write(&pending, image_ops::to_jpeg(&image, 92)?).map_err(|err| err.to_string())?;
+    let preview = image_ops::preview_jpeg(&image)?;
+    let name = path.file_name().and_then(|item| item.to_str()).unwrap_or("图片").to_string();
+    let mut core = state.core.lock().await;
+    core.pending = Some(PendingCustom {
+        path: pending,
+        name: name.clone(),
+        target_width,
+        target_height,
+    });
+    Ok(Some(CustomPreview {
+        name,
+        image_data_url: data_url(&preview),
+        source_width,
+        source_height,
+        target_width,
+        target_height,
+    }))
+}
+
+#[derive(Deserialize)]
+struct Focus {
+    x: Option<f32>,
+    y: Option<f32>,
+}
+
+#[tauri::command]
+async fn confirm_wallpaper(app: AppHandle, state: State<'_, AppState>, focus: Option<Focus>) -> Result<Plate, String> {
+    let dir = app_dir(&app)?;
+    let mut core = state.core.lock().await;
+    let pending = core.pending.take().ok_or_else(|| "请先选择一张图片".to_string())?;
+    let bytes = fs::read(&pending.path).map_err(|_| "请先选择一张图片".to_string())?;
+    let focus_x = focus.as_ref().and_then(|item| item.x).unwrap_or(0.5);
+    let focus_y = focus.as_ref().and_then(|item| item.y).unwrap_or(0.5);
+    let cropped = image_ops::crop_cover(&bytes, pending.target_width, pending.target_height, focus_x, focus_y)?;
+    let dest = dir.join("wallpaper-custom.jpg");
+    fs::write(&dest, &cropped).map_err(|err| err.to_string())?;
+    let lines = ensure_caption(&mut core.saved).await;
+    core.saved.caption_lines = Some(lines);
+    core.saved.source = "custom".into();
+    core.saved.image_path = Some(dest.display().to_string());
+    core.saved.copyright = Some(pending.name);
+    core.saved.copyright_url = None;
+    core.saved.favorite_id = None;
+    core.saved.photo_url = None;
+    core.saved.error = None;
+    write_saved(&dir, &core.saved)?;
+    plate_from_clean(&dir, &core.saved, &dest)
+}
+
+#[tauri::command]
+fn list_favorites(app: AppHandle) -> Result<Vec<FavoriteItem>, String> {
+    let dir = app_dir(&app)?;
+    let folder = favorites_dir(&dir);
+    Ok(load_favorites(&dir)
+        .into_iter()
+        .filter(|item| folder.join(format!("{}.jpg", item.id)).exists())
+        .map(|item| {
+            let thumb = folder.join(format!("{}.thumb.jpg", item.id));
+            FavoriteItem {
+                id: item.id,
+                word: item.word.unwrap_or_default(),
+                copyright: item.copyright.unwrap_or_default(),
+                source: if item.source == "custom" { "custom".into() } else { "bing".into() },
+                thumb_url: fs::read(thumb).map(|bytes| data_url(&bytes)).unwrap_or_default(),
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn save_favorite(app: AppHandle, state: State<'_, AppState>) -> Result<ViewState, String> {
+    let dir = app_dir(&app)?;
+    let mut core = state.core.lock().await;
+    if core.saved.image_path.as_ref().map(|path| Path::new(path).exists()).unwrap_or(false) == false {
+        return Err("还没有可以收藏的壁纸".into());
+    }
+    let items = load_favorites(&dir);
+    if current_favorite(&core.saved, &items).is_some() {
+        return Ok(view_of(&dir, &core.saved));
+    }
+    let lines = ensure_caption(&mut core.saved).await;
+    core.saved.caption_lines = Some(lines);
+    let clean = ensure_clean(&dir, &core.saved).await?;
+    let id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|time| time.as_millis().to_string())
+        .unwrap_or_else(|_| "favorite".into());
+    let folder = favorites_dir(&dir);
+    fs::create_dir_all(&folder).map_err(|err| err.to_string())?;
+    let file = folder.join(format!("{id}.jpg"));
+    fs::copy(&clean, &file).map_err(|err| err.to_string())?;
+    if let Ok(bytes) = fs::read(&file) {
+        if let Ok(thumb) = image_ops::thumb_jpeg(&bytes) {
+            let _ = fs::write(folder.join(format!("{id}.thumb.jpg")), thumb);
+        }
+    }
+    let mut items = load_favorites(&dir);
+    items.insert(
+        0,
+        FavoriteRecord {
+            id: id.clone(),
+            word: core.saved.word.clone(),
+            dictionary_url: core.saved.dictionary_url.clone(),
+            audio_url: core.saved.audio_url.clone(),
+            copyright: core.saved.copyright.clone(),
+            copyright_url: core.saved.copyright_url.clone(),
+            image_id: core.saved.image_id.clone(),
+            caption_lines: core.saved.caption_lines.clone(),
+            source: if core.saved.source == "custom" { "custom".into() } else { "bing".into() },
+            word_box: core.saved.word_box.clone(),
+        },
+    );
+    save_favorites(&dir, &items)?;
+    core.saved.favorite_id = Some(id);
+    write_saved(&dir, &core.saved)?;
+    Ok(view_of(&dir, &core.saved))
+}
+
+#[tauri::command]
+async fn remove_favorite(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<ViewState, String> {
+    let dir = app_dir(&app)?;
+    let items: Vec<_> = load_favorites(&dir).into_iter().filter(|item| item.id != id).collect();
+    save_favorites(&dir, &items)?;
+    let folder = favorites_dir(&dir);
+    let _ = fs::remove_file(folder.join(format!("{id}.jpg")));
+    let _ = fs::remove_file(folder.join(format!("{id}.thumb.jpg")));
+    let mut core = state.core.lock().await;
+    if core.saved.favorite_id.as_deref() == Some(&id) {
+        core.saved.favorite_id = None;
+        write_saved(&dir, &core.saved)?;
+    }
+    Ok(view_of(&dir, &core.saved))
+}
+
+#[tauri::command]
+async fn remove_current_favorite(app: AppHandle, state: State<'_, AppState>) -> Result<ViewState, String> {
+    let dir = app_dir(&app)?;
+    let id = {
+        let core = state.core.lock().await;
+        current_favorite(&core.saved, &load_favorites(&dir)).map(|item| item.id.clone())
+    };
+    if let Some(id) = id {
+        return remove_favorite(app, state, id).await;
+    }
+    let core = state.core.lock().await;
+    Ok(view_of(&dir, &core.saved))
+}
+
+#[tauri::command]
+async fn use_favorite(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<Plate, String> {
+    let dir = app_dir(&app)?;
+    let entry = load_favorites(&dir)
+        .into_iter()
+        .find(|item| item.id == id)
+        .ok_or_else(|| "这张收藏已经不在了".to_string())?;
+    let file = favorites_dir(&dir).join(format!("{}.jpg", entry.id));
+    if !file.exists() {
+        return Err("这张收藏已经不在了".into());
+    }
+    let mut core = state.core.lock().await;
+    if entry.source == "custom" {
+        let dest = dir.join("wallpaper-custom.jpg");
+        fs::copy(&file, &dest).map_err(|err| err.to_string())?;
+        core.saved.source = "custom".into();
+        core.saved.image_path = Some(dest.display().to_string());
+    } else {
+        let _ = fs::remove_file(dir.join("wallpaper-clean.txt"));
+        core.saved.source = "bing".into();
+        core.saved.image_path = Some(file.display().to_string());
+    }
+    core.saved.image_id = entry.image_id.clone();
+    core.saved.favorite_id = Some(entry.id.clone());
+    core.saved.word = entry.word.clone();
+    core.saved.dictionary_url = entry.dictionary_url.clone();
+    core.saved.audio_url = entry.audio_url.clone();
+    core.saved.copyright = entry.copyright.clone();
+    core.saved.copyright_url = entry.copyright_url.clone();
+    core.saved.caption_lines = entry.caption_lines.clone().or_else(|| entry.word.clone().map(|word| vec![word]));
+    core.saved.word_box = entry.word_box.clone();
+    core.saved.photo_url = None;
+    core.saved.error = None;
+    write_saved(&dir, &core.saved)?;
+    let clean = ensure_clean(&dir, &core.saved).await?;
+    plate_from_clean(&dir, &core.saved, &clean)
+}
+
+#[tauri::command]
+async fn watch_word(window: WebviewWindow, state: State<'_, AppState>) -> Result<String, String> {
+    let word = {
+        let mut core = state.core.lock().await;
+        let word = core.saved.word.clone().ok_or_else(|| "还没有单词".to_string())?;
+        if core.home.is_none() {
+            if let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) {
+                core.home = Some(HomeBounds {
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                });
+            }
+        }
+        word
+    };
+    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(1080, 760)));
+    let title = format!("看单词 {word}");
+    let _ = window.set_title(&title);
+    Ok(format!(
+        "https://www.playphrase.me/#/reels/en?source=custom-search&q={}&translate-direction=zh-cn&ct=phrases",
+        urlencoding_min(&word)
+    ))
+}
+
+fn urlencoding_min(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+#[tauri::command]
+async fn close_clip(window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+    let mut core = state.core.lock().await;
+    if let Some(home) = core.home.take() {
+        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(home.x, home.y)));
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(home.width, home.height)));
+    }
+    let _ = window.set_title("Wallish");
+    Ok(())
+}
+
+fn show_main(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn spawn_switch(app: &AppHandle, random: bool) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        match switch_wallpaper(app.clone(), state, random).await {
+            Ok(plate) => {
+                let _ = app.emit("plate", plate);
+            }
+            Err(err) => {
+                app.dialog().message(err).title("切换壁纸").blocking_show();
+            }
+        }
+    });
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .manage(AppState {
+            core: Mutex::new(Core {
+                saved: SavedState::default(),
+                pending: None,
+                home: None,
+            }),
+        })
+        .setup(|app| {
+            if let Ok(dir) = app_dir(app.handle()) {
+                let saved = read_saved(&dir);
+                let state = app.state::<AppState>();
+                if let Ok(mut core) = state.core.try_lock() {
+                    core.saved = saved;
+                };
+            }
+            let show = tauri::menu::MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
+            let today = tauri::menu::MenuItem::with_id(app, "today", "今日壁纸", true, None::<&str>)?;
+            let past = tauri::menu::MenuItem::with_id(app, "past", "切换往日壁纸", true, None::<&str>)?;
+            let quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = tauri::menu::Menu::with_items(app, &[&show, &today, &past, &quit])?;
+            let mut tray = tauri::tray::TrayIconBuilder::new()
+                .menu(&menu)
+                .tooltip("Wallish")
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => show_main(app),
+                    "today" => spawn_switch(app, false),
+                    "past" => spawn_switch(app, true),
+                    "quit" => {
+                        QUITTING.store(true, Ordering::SeqCst);
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                        show_main(tray.app_handle());
+                    }
+                });
+            if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
+                tray = tray.icon(icon);
+            }
+            let _ = tray.build(app);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if !QUITTING.load(Ordering::SeqCst) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_state,
+            switch_wallpaper,
+            publish_jpeg,
+            set_word_box,
+            preview_wallpaper,
+            confirm_wallpaper,
+            list_favorites,
+            save_favorite,
+            remove_favorite,
+            remove_current_favorite,
+            use_favorite,
+            watch_word,
+            close_clip
+        ])
+        .run(tauri::generate_context!())
+        .expect("启动 Wallish 失败");
+}
