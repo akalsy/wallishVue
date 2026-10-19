@@ -33,7 +33,7 @@ impl Default for WordBox {
     fn default() -> Self {
         Self {
             position: "bottom".into(),
-            background: "#1f2a36".into(),
+            background: "#f4efe6".into(),
             size: "medium".into(),
             caption: true,
         }
@@ -76,7 +76,12 @@ fn normalize_word_box(value: &serde_json::Value) -> WordBox {
     }
     if let Some(background) = value.get("background").and_then(|item| item.as_str()) {
         if background.len() == 7 && background.starts_with('#') && background[1..].chars().all(|ch| ch.is_ascii_hexdigit()) {
-            box_.background = background.to_lowercase();
+            // 旧版默认的深色底换成纸色，用户自己挑的颜色保持不变
+            box_.background = if background.eq_ignore_ascii_case("#1f2a36") {
+                WordBox::default().background
+            } else {
+                background.to_lowercase()
+            };
         }
     }
     if let Some(size) = value.get("size").and_then(|item| item.as_str()) {
@@ -1050,7 +1055,6 @@ pub fn run() {
             let mut tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
                 .tooltip("Wallish")
-                .icon_as_template(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main(app),
                     "today" => spawn_switch(app, false),

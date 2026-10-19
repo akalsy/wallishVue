@@ -10,7 +10,7 @@ import FavoritesPage from "./components/FavoritesPage.vue";
 import GameHub from "./components/GameHub.vue";
 import SettingsPage from "./components/SettingsPage.vue";
 
-const defaultBox = { position: "bottom", background: "#1f2a36", size: "medium", caption: true };
+const defaultBox = { position: "bottom", background: "#f4efe6", size: "medium", caption: true };
 const snapshot = ref(null);
 const clip = ref(null);
 const settingsOpen = ref(false);
