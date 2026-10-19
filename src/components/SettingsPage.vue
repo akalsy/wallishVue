@@ -4,6 +4,8 @@ import { computed, ref } from "vue";
 const props = defineProps({
   imageUrl: { type: String, default: "" },
   box: { type: Object, required: true },
+  level: { type: String, default: "cet4" },
+  wallpaperSource: { type: String, default: "auto" },
   saving: { type: Boolean, default: false },
   error: { type: String, default: "" },
 });
@@ -21,8 +23,22 @@ const sizes = [
   { id: "medium", label: "中" },
   { id: "large", label: "大" },
 ];
+const levels = [
+  { id: "cet4", label: "四级" },
+  { id: "cet6", label: "六级" },
+  { id: "kaoyan", label: "考研" },
+  { id: "ielts", label: "雅思" },
+  { id: "toefl", label: "托福" },
+  { id: "gre", label: "GRE" },
+];
+const sources = [
+  { id: "auto", label: "自动" },
+  { id: "wallhaven", label: "壁纸站" },
+  { id: "bing", label: "必应" },
+  { id: "picsum", label: "随拍" },
+];
 
-const draft = ref({ ...props.box });
+const draft = ref({ ...props.box, level: props.level, wallpaperSource: props.wallpaperSource });
 const hidden = computed(() => draft.value.caption === false);
 const dirty = computed(() => {
   const left = draft.value;
@@ -31,7 +47,9 @@ const dirty = computed(() => {
     left.position !== right.position ||
     left.background !== right.background ||
     left.size !== right.size ||
-    (left.caption !== false) !== (right.caption !== false)
+    (left.caption !== false) !== (right.caption !== false) ||
+    left.level !== props.level ||
+    left.wallpaperSource !== props.wallpaperSource
   );
 });
 
@@ -53,6 +71,31 @@ function patch(part) {
       </div>
       <div class="wallish-settings__panel">
         <p class="wallish-settings__hint">改完要点保存，才会换掉桌面壁纸。不显示词条时，桌面只留照片。</p>
+        <p class="wallish-settings__label">单词等级</p>
+        <div class="wallish-settings__sizes">
+          <button
+            v-for="item in levels"
+            :key="item.id"
+            :class="draft.level === item.id ? 'wallish-settings__size wallish-settings__size--on' : 'wallish-settings__size'"
+            type="button"
+            @click="patch({ level: item.id })"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <p class="wallish-settings__label">壁纸来源</p>
+        <div class="wallish-settings__sizes">
+          <button
+            v-for="item in sources"
+            :key="item.id"
+            :class="draft.wallpaperSource === item.id ? 'wallish-settings__size wallish-settings__size--on' : 'wallish-settings__size'"
+            type="button"
+            @click="patch({ wallpaperSource: item.id })"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <p class="wallish-settings__hint">自动=壁纸站→必应→随拍依次尝试；壁纸站(Wallhaven)与随拍(Picsum)可能需科学上网。改完下次换壁纸生效。</p>
         <label class="wallish-settings__toggle">
           <span>不显示词条</span>
           <input

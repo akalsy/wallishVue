@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::webview::WebviewBuilder;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex;
 
@@ -37,6 +37,28 @@ impl Default for WordBox {
             size: "medium".into(),
             caption: true,
         }
+    }
+}
+
+fn default_level() -> String {
+    "cet4".into()
+}
+
+fn normalize_level(level: &str) -> String {
+    match level {
+        "cet4" | "cet6" | "kaoyan" | "ielts" | "toefl" | "gre" => level.to_string(),
+        _ => default_level(),
+    }
+}
+
+fn default_source() -> String {
+    "auto".into()
+}
+
+fn normalize_source(source: &str) -> String {
+    match source {
+        "auto" | "wallhaven" | "bing" | "picsum" => source.to_string(),
+        _ => default_source(),
     }
 }
 
@@ -85,6 +107,10 @@ struct SavedState {
     error: Option<String>,
     #[serde(default)]
     photo_url: Option<String>,
+    #[serde(default = "default_level")]
+    level: String,
+    #[serde(default = "default_source")]
+    wallpaper_source: String,
 }
 
 impl Default for SavedState {
@@ -104,6 +130,8 @@ impl Default for SavedState {
             random: false,
             error: None,
             photo_url: None,
+            level: default_level(),
+            wallpaper_source: default_source(),
         }
     }
 }
@@ -113,11 +141,15 @@ impl Default for SavedState {
 struct ViewState {
     word: Option<String>,
     dictionary_url: Option<String>,
+    audio_url: Option<String>,
     copyright: Option<String>,
     image_data_url: Option<String>,
+    caption_lines: Option<Vec<String>>,
     word_box: WordBox,
     favorited: bool,
     error: Option<String>,
+    level: String,
+    wallpaper_source: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -282,11 +314,15 @@ fn view_of(dir: &Path, saved: &SavedState) -> ViewState {
     ViewState {
         word: saved.word.clone(),
         dictionary_url: saved.dictionary_url.clone(),
+        audio_url: saved.audio_url.clone(),
         copyright: saved.copyright.clone(),
         image_data_url,
+        caption_lines: saved.caption_lines.clone(),
         word_box: saved.word_box.clone(),
         favorited: current_favorite(saved, &items).is_some(),
         error: saved.error.clone(),
+        level: saved.level.clone(),
+        wallpaper_source: saved.wallpaper_source.clone(),
     }
 }
 
@@ -301,7 +337,7 @@ fn empty_plate(view: ViewState) -> Plate {
     }
 }
 
-fn wallpaper_size(window: &WebviewWindow) -> (u32, u32) {
+fn wallpaper_size(window: &tauri::Window) -> (u32, u32) {
     let Some(monitor) = window.primary_monitor().ok().flatten() else {
         return (1920, 1080);
     };
@@ -372,12 +408,7 @@ async fn ensure_caption(saved: &mut SavedState) -> Vec<String> {
             return lines.clone();
         }
     }
-    let fetched = fetch::fetch_caption(saved.image_id.as_deref().unwrap_or("")).await;
-    let lines = if fetched.is_empty() {
-        saved.word.clone().map(|word| vec![word]).unwrap_or_default()
-    } else {
-        fetched
-    };
+    let lines = saved.word.clone().map(|word| vec![word]).unwrap_or_default();
     saved.caption_lines = Some(lines.clone());
     lines
 }
@@ -390,24 +421,33 @@ async fn ensure_clean(dir: &Path, saved: &SavedState) -> Result<PathBuf, String>
         }
         return Ok(custom);
     }
-    let image_id = saved.image_id.clone().unwrap_or_default();
-    if image_id.is_empty() {
+    let marker_id = saved
+        .photo_url
+        .clone()
+        .or_else(|| saved.image_id.clone())
+        .unwrap_or_default();
+    if marker_id.is_empty() {
         return Err("这张壁纸没有原图".into());
     }
     let clean = dir.join("wallpaper-clean.jpg");
     let marker_path = dir.join("wallpaper-clean.txt");
     let marker = fs::read_to_string(&marker_path).unwrap_or_default();
-    if marker == format!("bing:{image_id}") && clean.exists() {
+    if marker == format!("bing:{marker_id}") && clean.exists() {
         return Ok(clean);
     }
-    let images = fetch::list_recent_bing(if saved.random { 8 } else { 1 }).await;
-    let url = fetch::find_clean(&images, saved.copyright.as_deref().unwrap_or(""), !saved.random)
-        .ok_or_else(|| "这张壁纸不在最近 8 天里".to_string())?;
-    let bytes = fetch::download_bytes(url, 15).await?;
+    let url = if marker_id.starts_with("http") {
+        marker_id.clone()
+    } else {
+        let images = fetch::list_bing(if saved.random { 8 } else { 1 }).await;
+        fetch::find_clean(&images, saved.copyright.as_deref().unwrap_or(""), !saved.random)
+            .ok_or_else(|| "这张壁纸不在最近 8 天里".to_string())?
+            .to_string()
+    };
+    let bytes = fetch::download_bytes(&url, 15).await?;
     let part = dir.join("wallpaper-clean.jpg.part");
     fs::write(&part, &bytes).map_err(|err| err.to_string())?;
     fs::rename(&part, &clean).map_err(|err| err.to_string())?;
-    fs::write(&marker_path, format!("bing:{image_id}")).map_err(|err| err.to_string())?;
+    fs::write(&marker_path, format!("bing:{marker_id}")).map_err(|err| err.to_string())?;
     Ok(clean)
 }
 
@@ -419,16 +459,16 @@ async fn get_state(app: AppHandle, state: State<'_, AppState>) -> Result<ViewSta
 }
 
 async fn fetch_past_photo(
-    images: &[fetch::BingImage],
+    images: &[fetch::Wallpaper],
     copyright: &str,
     avoid_copyright: &str,
     avoid_url: &str,
     previous: &[u8],
-) -> Result<(String, Vec<u8>), String> {
+) -> Result<(String, String, Vec<u8>), String> {
     let first = fetch::pick_recent(images, copyright, avoid_copyright, avoid_url)
-        .ok_or_else(|| "没有拿到 Bing 壁纸".to_string())?;
+        .ok_or_else(|| "没有可用的壁纸".to_string())?;
     let start = images.iter().position(|image| image.url == first).unwrap_or(0);
-    let mut fallback: Option<(String, Vec<u8>)> = None;
+    let mut fallback: Option<(String, String, Vec<u8>)> = None;
     for offset in 0..images.len() {
         let image = &images[(start + offset) % images.len()];
         if !avoid_url.is_empty() && image.url == avoid_url {
@@ -438,68 +478,157 @@ async fn fetch_past_photo(
             continue;
         };
         if fallback.is_none() {
-            fallback = Some((image.url.clone(), bytes.clone()));
+            fallback = Some((image.url.clone(), image.copyright.clone(), bytes.clone()));
         }
         if previous.is_empty() || bytes != previous {
-            return Ok((image.url.clone(), bytes));
+            return Ok((image.url.clone(), image.copyright.clone(), bytes));
         }
     }
-    fallback.ok_or_else(|| "没有拿到 Bing 壁纸".to_string())
+    fallback.ok_or_else(|| "没有可用的壁纸".to_string())
+}
+
+async fn try_provider(
+    provider: &str,
+    random: bool,
+    avoid_copyright: &str,
+    avoid_url: &str,
+    previous: &[u8],
+) -> Result<(String, String, Vec<u8>), String> {
+    match provider {
+        "bing" => {
+            if random {
+                let images = fetch::list_bing(8).await;
+                if images.is_empty() {
+                    return Err("Bing 没有返回壁纸".into());
+                }
+                fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous).await
+            } else {
+                let images = fetch::list_bing(1).await;
+                let image = images.first().ok_or_else(|| "Bing 没有返回壁纸".to_string())?;
+                let bytes = fetch::download_bytes(&image.url, 15).await?;
+                Ok((image.url.clone(), image.copyright.clone(), bytes))
+            }
+        }
+        "wallhaven" => {
+            let images = fetch::list_wallhaven(24).await;
+            if images.is_empty() {
+                return Err("Wallhaven 没有返回壁纸".into());
+            }
+            fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous).await
+        }
+        "picsum" => {
+            let images = fetch::list_picsum(30).await;
+            if images.is_empty() {
+                return Err("Picsum 没有返回壁纸".into());
+            }
+            fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous).await
+        }
+        _ => Err("未知的壁纸来源".into()),
+    }
+}
+
+async fn pick_wallpaper(
+    source: &str,
+    random: bool,
+    avoid_copyright: &str,
+    avoid_url: &str,
+    previous: &[u8],
+) -> Result<(String, String, Vec<u8>), String> {
+    let providers: &[&str] = match source {
+        "wallhaven" => &["wallhaven"],
+        "bing" => &["bing"],
+        "picsum" => &["picsum"],
+        _ => &["wallhaven", "bing", "picsum"],
+    };
+    let mut first_error = None;
+    for provider in providers {
+        match try_provider(provider, random, avoid_copyright, avoid_url, previous).await {
+            Ok(result) => return Ok(result),
+            Err(err) => {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+        }
+    }
+    Err(first_error.unwrap_or_else(|| "没有拿到壁纸".into()))
 }
 
 #[tauri::command]
 async fn switch_wallpaper(app: AppHandle, state: State<'_, AppState>, random: bool) -> Result<Plate, String> {
     let dir = app_dir(&app)?;
     let mut core = state.core.lock().await;
-    let meta = fetch::fetch_word_meta(random).await?;
-    let caption_task = fetch::fetch_caption(meta.image_id.as_deref().unwrap_or(""));
-    let word_copyright = meta.copyright.clone().unwrap_or_default();
+    let level = core.saved.level.clone();
+    let wallpaper_source = normalize_source(&core.saved.wallpaper_source);
+    let word = fetch::fetch_level_word(&level).await?;
     let avoid_copyright = core.saved.copyright.clone().unwrap_or_default();
     let avoid_url = core.saved.photo_url.clone().unwrap_or_default();
     let previous = fs::read(dir.join("wallpaper-clean.jpg")).unwrap_or_default();
-    let photo_task = async move {
-        let images = if random {
-            fetch::list_recent_bing(8).await
-        } else {
-            fetch::list_recent_bing(1).await
-        };
-        if random {
-            fetch_past_photo(&images, &word_copyright, &avoid_copyright, &avoid_url, &previous).await
-        } else {
-            let url = fetch::find_clean(&images, "", true)
-                .ok_or_else(|| "没有拿到 Bing 壁纸".to_string())?
-                .to_string();
-            let bytes = fetch::download_bytes(&url, 15).await?;
-            Ok((url, bytes))
-        }
-    };
-    let (lines, photo) = tokio::join!(caption_task, photo_task);
-    let (photo_url, bytes) = photo?;
-    let image_id = meta.image_id.clone().ok_or_else(|| "没有拿到单词".to_string())?;
+    let (photo_url, copyright, bytes) =
+        pick_wallpaper(&wallpaper_source, random, &avoid_copyright, &avoid_url, &previous).await?;
     let clean = dir.join("wallpaper-clean.jpg");
     let part = dir.join("wallpaper-clean.jpg.part");
     fs::write(&part, &bytes).map_err(|err| err.to_string())?;
     fs::rename(&part, &clean).map_err(|err| err.to_string())?;
-    fs::write(dir.join("wallpaper-clean.txt"), format!("bing:{image_id}")).map_err(|err| err.to_string())?;
+    fs::write(dir.join("wallpaper-clean.txt"), format!("bing:{photo_url}")).map_err(|err| err.to_string())?;
     let word_box = core.saved.word_box.clone();
     core.saved = SavedState {
-        word: meta.word,
-        dictionary_url: meta.dictionary_url,
-        audio_url: meta.audio_url,
-        copyright: meta.copyright,
-        copyright_url: meta.copyright_url,
-        image_id: Some(image_id),
+        word: Some(word.word),
+        dictionary_url: Some(word.dictionary_url),
+        audio_url: Some(word.audio_url),
+        copyright: Some(copyright),
+        copyright_url: None,
+        image_id: Some(photo_url.clone()),
         image_path: Some(clean.display().to_string()),
-        caption_lines: if lines.is_empty() { None } else { Some(lines) },
+        caption_lines: Some(word.lines),
         source: "bing".into(),
         favorite_id: None,
         word_box,
         random,
         error: None,
         photo_url: Some(photo_url),
+        level,
+        wallpaper_source,
     };
     write_saved(&dir, &core.saved)?;
     plate_from_clean(&dir, &core.saved, &clean)
+}
+
+#[tauri::command]
+async fn set_wallpaper_source(app: AppHandle, state: State<'_, AppState>, source: String) -> Result<ViewState, String> {
+    let dir = app_dir(&app)?;
+    let mut core = state.core.lock().await;
+    core.saved.wallpaper_source = normalize_source(&source);
+    write_saved(&dir, &core.saved)?;
+    Ok(view_of(&dir, &core.saved))
+}
+
+#[tauri::command]
+async fn set_word_level(app: AppHandle, state: State<'_, AppState>, level: String) -> Result<Plate, String> {
+    let dir = app_dir(&app)?;
+    let mut core = state.core.lock().await;
+    let level = normalize_level(&level);
+    let word = fetch::fetch_level_word(&level).await?;
+    core.saved.level = level;
+    core.saved.word = Some(word.word);
+    core.saved.dictionary_url = Some(word.dictionary_url);
+    core.saved.audio_url = Some(word.audio_url);
+    core.saved.caption_lines = Some(word.lines);
+    core.saved.error = None;
+    write_saved(&dir, &core.saved)?;
+    let clean = match ensure_clean(&dir, &core.saved).await {
+        Ok(clean) => clean,
+        Err(_) => return Ok(empty_plate(view_of(&dir, &core.saved))),
+    };
+    plate_from_clean(&dir, &core.saved, &clean)
+}
+
+#[tauri::command]
+async fn quiz_words(state: State<'_, AppState>, count: Option<usize>) -> Result<Vec<fetch::QuizWord>, String> {
+    let level = state.core.lock().await.saved.level.clone();
+    // 不传就是 5 个，给纵横填字用。
+    let count = count.unwrap_or(5).clamp(2, 20);
+    fetch::fetch_quiz_words(&level, count).await
 }
 
 #[tauri::command]
@@ -528,7 +657,7 @@ async fn set_word_box(app: AppHandle, state: State<'_, AppState>, word_box: Word
 }
 
 #[tauri::command]
-async fn preview_wallpaper(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>) -> Result<Option<CustomPreview>, String> {
+async fn preview_wallpaper(app: AppHandle, window: tauri::Window, state: State<'_, AppState>) -> Result<Option<CustomPreview>, String> {
     let picked = app
         .dialog()
         .file()
@@ -766,8 +895,32 @@ fn place_clip(window: &tauri::Window) {
     let _ = clip.set_size(size);
 }
 
+// 看单词时把窗口放大到舒适的阅读尺寸。这里必须用 Logical：高分屏上 Physical(1080x760)
+// 会变成 540x380 逻辑点，页面被压扁。同时按当前屏幕的逻辑可用区域做一下收敛，避免超出屏幕。
+fn word_window_size(window: &tauri::Window) -> tauri::Size {
+    const WANT_WIDTH: f64 = 1080.0;
+    const WANT_HEIGHT: f64 = 760.0;
+    let (max_width, max_height) = match window.current_monitor().ok().flatten() {
+        Some(monitor) => {
+            let scale = monitor.scale_factor().max(1.0);
+            let area = monitor.work_area();
+            (area.size.width as f64 / scale, area.size.height as f64 / scale)
+        }
+        None => (WANT_WIDTH, WANT_HEIGHT),
+    };
+    tauri::Size::Logical(tauri::LogicalSize::new(
+        WANT_WIDTH.min(max_width).max(360.0),
+        WANT_HEIGHT.min(max_height).max(280.0),
+    ))
+}
+
+fn restore_home(window: &tauri::Window, home: HomeBounds) {
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(home.x, home.y)));
+    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(home.width, home.height)));
+}
+
 #[tauri::command]
-async fn watch_word(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+async fn watch_word(app: AppHandle, window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
     let word = {
         let mut core = state.core.lock().await;
         let word = core.saved.word.clone().ok_or_else(|| "还没有单词".to_string())?;
@@ -783,30 +936,41 @@ async fn watch_word(app: AppHandle, window: WebviewWindow, state: State<'_, AppS
         }
         word
     };
-    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(1080, 760)));
+    // PlayPhrase 带 X-Frame-Options: SAMEORIGIN，放进 iframe 会被留白。
+    // 直接打开成窗口里的页面，这个限制不会生效。先把地址校验好再动窗口，免得失败后回不来。
+    let url: tauri::Url = format!("https://www.playphrase.me/reels/en/zh-cn/{}/", urlencoding_min(&word))
+        .parse()
+        .map_err(|err| format!("地址无效（{err}）"))?;
+    let before = window.outer_size().ok();
+    let _ = window.set_size(word_window_size(&window));
     let _ = window.set_title(&format!("看单词 {word}"));
     // 窗口尺寸是异步生效的。子 webview 创建后改大小不会跟着变，所以等它变完再贴。
     for _ in 0..20 {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-        if window.inner_size().map(|size| size.width >= 1000).unwrap_or(false) {
+        if window.outer_size().ok() != before {
             break;
         }
     }
-    // PlayPhrase 带 X-Frame-Options: SAMEORIGIN，放进 iframe 会被留白。
-    // 直接打开成窗口里的页面，这个限制不会生效。
-    let url: tauri::Url = format!("https://www.playphrase.me/reels/en/zh-cn/{}/", urlencoding_min(&word))
-        .parse()
-        .map_err(|err| format!("地址无效（{err}）"))?;
-    if let Some(existing) = app.get_webview(CLIP_LABEL) {
-        existing.navigate(url).map_err(|err| err.to_string())?;
-        place_clip(&window.as_ref().window());
-    } else {
-        let parent = window.as_ref().window();
-        let (position, size) = clip_frame(&parent).ok_or_else(|| "窗口尺寸还没准备好".to_string())?;
-        parent
-            .add_child(WebviewBuilder::new(CLIP_LABEL, WebviewUrl::External(url)), position, size)
-            .map_err(|err| err.to_string())?;
+    let opened = match app.get_webview(CLIP_LABEL) {
+        Some(existing) => existing.navigate(url).map_err(|err| err.to_string()),
+        None => match clip_frame(&window) {
+            Some((position, size)) => window
+                .add_child(WebviewBuilder::new(CLIP_LABEL, WebviewUrl::External(url)), position, size)
+                .map(|_| ())
+                .map_err(|err| err.to_string()),
+            None => Err("窗口尺寸还没准备好".to_string()),
+        },
+    };
+    if let Err(err) = opened {
+        // 打不开就把窗口恢复回首页大小、清掉 home 记录，避免首页被压在下面又点不动。
+        let mut core = state.core.lock().await;
+        if let Some(home) = core.home.take() {
+            restore_home(&window, home);
+        }
+        let _ = window.set_title("Wallish");
+        return Err(err);
     }
+    place_clip(&window);
     Ok(())
 }
 
@@ -822,21 +986,22 @@ fn urlencoding_min(value: &str) -> String {
 }
 
 #[tauri::command]
-async fn close_clip(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+async fn close_clip(app: AppHandle, window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
     if let Some(clip) = app.get_webview(CLIP_LABEL) {
         let _ = clip.close();
     }
     let mut core = state.core.lock().await;
     if let Some(home) = core.home.take() {
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(home.x, home.y)));
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(home.width, home.height)));
+        restore_home(&window, home);
     }
     let _ = window.set_title("Wallish");
     Ok(())
 }
 
 fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    // 注意：子 webview 存在时主窗口不再是 WebviewWindow，get_webview_window 会返回 None，
+    // 所以这里用 get_window 拿普通 Window。
+    if let Some(window) = app.get_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -885,6 +1050,7 @@ pub fn run() {
             let mut tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
                 .tooltip("Wallish")
+                .icon_as_template(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main(app),
                     "today" => spawn_switch(app, false),
@@ -923,6 +1089,9 @@ pub fn run() {
             switch_wallpaper,
             publish_jpeg,
             set_word_box,
+            set_word_level,
+            set_wallpaper_source,
+            quiz_words,
             preview_wallpaper,
             confirm_wallpaper,
             list_favorites,

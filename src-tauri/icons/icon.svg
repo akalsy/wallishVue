@@ -1,0 +1,53 @@
+<svg id="wallish-app-icon" width="256" height="256" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" class="rounded-[90px] shadow-2xl border-4 border-[#38342f]">
+        <!-- 滤镜定义：粗糙手绘感与阴影 -->
+        <defs>
+          <filter id="rough-edge" x="-10%" y="-10%" width="120%" height="120%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" result="noise"/>
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+          </filter>
+          <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#557C78"/>
+            <stop offset="100%" stop-color="#3D5C58"/>
+          </linearGradient>
+          <linearGradient id="tapeGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#fde68a" stop-opacity="0.85"/>
+            <stop offset="100%" stop-color="#fca5a5" stop-opacity="0.85"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Icon Background -->
+        <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
+
+        <!-- 内部复古纸张贴框 -->
+        <g filter="url(#rough-edge)">
+          <!-- 拍立得卡片底座 -->
+          <rect x="90" y="80" width="332" height="340" rx="18" fill="#FAFAFA" stroke="#38342f" stroke-width="8"/>
+          
+          <!-- 壁纸插图区域 (黄昏手绘小画) -->
+          <rect x="114" y="104" width="284" height="200" rx="8" fill="#FDF3E7" stroke="#38342f" stroke-width="6"/>
+          <path d="M114 260 Q 200 210 280 250 T 398 230 L 398 304 L 114 304 Z" fill="#E2C08D" stroke="#38342f" stroke-width="5"/>
+          <circle cx="340" cy="150" r="22" fill="#F87171" stroke="#38342f" stroke-width="5"/>
+          
+          <!-- 单词文字：avert -->
+          <text x="256" y="200" font-family="'Mali', 'Comic Sans MS', cursive" font-size="38" font-weight="bold" fill="#38342f" text-anchor="middle">avert</text>
+          
+          <!-- 音标 /手绘简图 -->
+          <text x="256" y="235" font-family="monospace" font-size="18" fill="#665e52" text-anchor="middle">/əˈvɜːt/</text>
+
+          <!-- 打开的书本 图标 -->
+          <g transform="translate(226, 245)">
+            <path d="M6 18 C 18 12, 30 18, 30 26 L 30 50 C 30 42, 18 36, 6 42 Z" fill="#FDE047" stroke="#38342f" stroke-width="4"/>
+            <path d="M54 18 C 42 12, 30 18, 30 26 L 30 50 C 30 42, 42 36, 54 42 Z" fill="#FEF08A" stroke="#38342f" stroke-width="4"/>
+          </g>
+
+          <!-- 底部软件名：Wallish -->
+          <text x="256" y="385" font-family="'Caveat', cursive" font-size="44" font-weight="bold" fill="#38342f" text-anchor="middle">Wallish</text>
+
+          <!-- 胶带 1（左上） -->
+          <rect x="70" y="60" width="85" height="32" rx="4" fill="url(#tapeGrad)" stroke="#38342f" stroke-width="5" transform="rotate(-25 112 76)"/>
+          <!-- 胶带 2（右上） -->
+          <rect x="355" y="65" width="85" height="32" rx="4" fill="url(#tapeGrad)" stroke="#38342f" stroke-width="5" transform="rotate(20 397 81)"/>
+          <!-- 胶带 3（右下） -->
+          <rect x="345" y="360" width="85" height="32" rx="4" fill="url(#tapeGrad)" stroke="#38342f" stroke-width="5" transform="rotate(-15 387 376)"/>
+        </g>
+      </svg>

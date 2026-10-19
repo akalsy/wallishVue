@@ -1,7 +1,17 @@
 :root {
-  color: #f2f2f7;
-  background: #567a71;
-  font-family: "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --ink: #38342f;
+  --ink-dark: #2b2621;
+  --paper: #f4efe6;
+  --paper-soft: #faf6f0;
+  --paper-mid: #f3ede2;
+  --paper-deep: #eadecc;
+  --line: #c5bcad;
+  --muted: #6f675a;
+  --sketch-radius: 16px 8px 18px 10px / 10px 16px 9px 18px;
+  --sketch-pill: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: "Caveat", "PingFang SC", "Hiragino Sans GB", sans-serif;
 }
 
 html,
@@ -14,35 +24,54 @@ body {
   margin: 0;
 }
 
+/* ── 首页：手绘纸风格式（参考 wallish_app_design.html） ─────────── */
 .wallish-home {
   min-height: 100vh;
   box-sizing: border-box;
-  padding: 28px 28px 24px;
-  background: #567a71;
+  padding: 16px 20px 22px;
+  color: #38342f;
+  background-color: #f4efe6;
+  background-image: radial-gradient(#dcd2c0 1px, transparent 1px);
+  background-size: 20px 20px;
 }
 
 .wallish-home__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 2px dashed #c5bcad;
 }
 
-.wallish-home__heading {
-  min-width: 0;
+.wallish-home__brand {
+  margin: 0;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #38342f;
 }
 
 .wallish-home__settings {
   flex: none;
-  width: 36px;
-  height: 36px;
-  margin-top: 4px;
-  padding: 6px;
+  width: 34px;
+  height: 34px;
+  padding: 7px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 50% 45% 55% 40% / 45% 55% 40% 50%;
   background: transparent;
-  color: #d1d1d6;
+  color: #38342f;
   cursor: pointer;
+}
+
+.wallish-home__settings:hover {
+  background: #eadecc;
+}
+
+.wallish-home__settings:active {
+  background: #fde68a;
 }
 
 .wallish-home__settings svg {
@@ -51,119 +80,480 @@ body {
   height: 100%;
 }
 
-.wallish-home__kicker {
+/* 单词信息栏 */
+.wallish-home__wordbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.wallish-home__wordline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wallish-home__word {
   margin: 0;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: #8e8e93;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #2b2621;
+  max-width: 400px;
+  overflow-wrap: anywhere;
+}
+
+.wallish-home__sound {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border: 2px solid #38342f;
+  border-radius: 999px;
+  background: #eae1d0;
+  color: #38342f;
+  cursor: pointer;
+}
+
+.wallish-home__sound:hover {
+  background: #fde68a;
+}
+
+.wallish-home__sound svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.wallish-home__wordsub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: #61594e;
   font-size: 13px;
+}
+
+.wallish-home__phone {
+  padding: 1px 8px;
+  border: 1px solid #c0b5a3;
+  border-radius: 6px;
+  background: #eae1d0;
+  font-family: "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  color: #4a4339;
+}
+
+.wallish-home__gloss {
+  color: #38342f;
   font-weight: 600;
 }
 
-.wallish-home__title {
-  margin: 6px 0 0;
-  font-size: 48px;
-  font-weight: 650;
-  letter-spacing: -0.03em;
+.wallish-home__tag {
+  flex: none;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border: 1px solid #38342f;
+  border-radius: 12px 18px 14px 10px / 16px 12px 15px 11px;
+  background: #e2dacb;
+  color: #4a4339;
+  font-size: 11px;
 }
 
-.wallish-home__stage {
+/* 壁纸相框 */
+.wallish-home__frame {
   position: relative;
-  margin-top: 20px;
+  margin-top: 18px;
+  padding: 12px;
+  border: 2px solid #38342f;
+  border-radius: 18px 8px 20px 10px / 10px 18px 9px 20px;
+  background: #f3ede2;
+  box-shadow: 3px 3px 0 #38342f;
+}
+
+.wallish-home__tape {
+  position: absolute;
+  top: -10px;
+  width: 62px;
+  height: 22px;
+  border-left: 2px dashed rgba(180, 160, 120, 0.5);
+  border-right: 2px dashed rgba(180, 160, 120, 0.5);
+  transform: rotate(-3deg);
+  background-color: rgba(243, 228, 192, 0.85);
+  z-index: 1;
+}
+
+.wallish-home__tape--left {
+  left: 26px;
+}
+
+.wallish-home__tape--right {
+  right: 26px;
+  transform: rotate(4deg);
+}
+
+.wallish-home__photo-box {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid #38342f;
+  border-radius: 10px;
+  background: #2c2c2e;
+  aspect-ratio: 16 / 9;
 }
 
 .wallish-home__photo {
   display: block;
   width: 100%;
-  height: 280px;
+  height: 100%;
   object-fit: cover;
-  border-radius: 18px;
-  background: #2c2c2e;
 }
 
 .wallish-home__photo--empty {
   display: grid;
   place-items: center;
-  color: #bdc3c7;
+  color: #8c8273;
+  font-size: 14px;
 }
 
-.wallish-home__copy {
-  min-height: 22px;
-  margin: 14px 0 0;
-  color: #8e8e93;
-  font-size: 13px;
-  line-height: 1.5;
-  text-align: center;
+.wallish-home__card {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  padding: 8px 10px;
+  border: 2px solid #38342f;
+  border-radius: 12px 18px 14px 10px / 16px 12px 15px 11px;
+  background: rgba(250, 246, 240, 0.92);
+  color: #38342f;
+  box-shadow: 2px 2px 0 rgba(56, 52, 47, 0.6);
+}
+
+.wallish-home__cardline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.wallish-home__cardword {
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2b2621;
+}
+
+.wallish-home__cardphone {
+  font-family: "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  color: #665e52;
+}
+
+.wallish-home__cardgloss {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #524b42;
+}
+
+.wallish-home__cardsentence {
+  display: -webkit-box;
+  margin: 4px 0 0;
+  padding-top: 4px;
+  border-top: 1px dashed #b8ae9c;
+  overflow: hidden;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  font-size: 11px;
+  font-style: italic;
+  color: #4a4339;
+}
+
+.wallish-home__credit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 2px;
+  color: #786f62;
+  font-size: 11px;
+}
+
+.wallish-home__creditsource {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallish-home__creditsource svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.wallish-home__creditauthor {
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #38342f;
 }
 
 .wallish-home__error {
-  margin: 8px 0 0;
-  color: #e74c3c;
+  margin: 10px 0 0;
+  color: #c0392b;
+  font-weight: 600;
 }
 
+/* 三个主操作按钮 */
 .wallish-home__actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 22px;
+  gap: 10px;
+  margin-top: 16px;
 }
 
-.wallish-home__button,
-.wallish-home__link {
+.wallish-home__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border: 2px solid #38342f;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  box-shadow: 3px 4px 0 #38342f;
+  color: #1e3a8a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-home__button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wallish-home__button:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 6px 0 #38342f;
+}
+
+.wallish-home__button:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 2px 0 #38342f;
+}
+
+.wallish-home__button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.wallish-home__button--today {
+  background: #93c5fd;
+  color: #1e3a8a;
+}
+
+.wallish-home__button--today:hover:not(:disabled) {
+  background: #7dd3fc;
+}
+
+.wallish-home__button--past {
+  background: #c084fc;
+  color: #4c1d95;
+}
+
+.wallish-home__button--past:hover:not(:disabled) {
+  background: #d8b4fe;
+}
+
+.wallish-home__button--custom {
+  background: #fca5a5;
+  color: #7f1d1d;
+}
+
+.wallish-home__button--custom:hover:not(:disabled) {
+  background: #f87171;
+}
+
+/* 底部功能工具栏 */
+.wallish-home__desk {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-around;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 2px dashed #c5bcad;
+}
+
+.wallish-home__opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   border: 0;
-  border-radius: 999px;
-  padding: 12px 10px;
+  background: transparent;
+  color: inherit;
   font: inherit;
   cursor: pointer;
 }
 
-.wallish-home__button {
-  color: #f2f2f7;
+.wallish-home__opt:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
-.wallish-home__button--today {
-  background: linear-gradient(135deg, #5b8ec4 0%, #2c5278 100%);
+.wallish-home__opticon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 9px;
+  border: 2px solid #38342f;
+  border-radius: 50% 45% 55% 40% / 45% 55% 40% 50%;
+  box-shadow: 2px 3px 0 #38342f;
+  color: #38342f;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
 }
 
-.wallish-home__button--past {
-  background: linear-gradient(135deg, #7a68a0 0%, #433858 100%);
+.wallish-home__opt:hover:not(:disabled) .wallish-home__opticon {
+  transform: translateY(-3px) rotate(-3deg);
+  box-shadow: 4px 5px 0 #38342f;
+  background: #fde68a;
 }
 
-.wallish-home__button--custom {
-  background: linear-gradient(135deg, #a06a52 0%, #5c3336 100%);
+.wallish-home__opt:active:not(:disabled) .wallish-home__opticon {
+  transform: translateY(1px) rotate(1deg);
+  box-shadow: 1px 1px 0 #38342f;
 }
 
-.wallish-home__button:disabled {
-  cursor: progress;
-  opacity: 0.6;
+.wallish-home__opticon svg {
+  width: 100%;
+  height: 100%;
 }
 
-.wallish-home__links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px 18px;
-  margin-top: 18px;
+.wallish-home__opticon--fav {
+  background: #fef08a;
 }
 
-.wallish-home__link {
-  background: transparent;
-  color: #aeaeb2;
-  padding: 4px 0;
+.wallish-home__opticon--list {
+  background: #fed7aa;
+}
+
+.wallish-home__opticon--search {
+  background: #bbf7d0;
+}
+
+.wallish-home__opticon--game {
+  background: #ddd6fe;
+}
+
+.wallish-home__opticon--word {
+  background: #bae6fd;
+}
+
+.wallish-home__optlabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: #524b42;
 }
 
 .wallish-home__hint {
-  margin: 22px 0 0;
-  color: #636366;
-  font-size: 12px;
+  margin: 14px 0 0;
+  color: #8c8273;
+  font-size: 11px;
   text-align: center;
 }
 
+/* ── 通用手绘页面骨架 ─────────────────────────────── */
+.wallish-clip,
+.wallish-settings,
+.wallish-custom,
+.wallish-favorites,
+.wallish-game,
+.wallish-cross,
+.wallish-hub {
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image: radial-gradient(#dcd2c0 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* 返回按钮（各页面共用） */
+.wallish-clip__back,
+.wallish-settings__back,
+.wallish-custom__back,
+.wallish-favorites__back,
+.wallish-game__back,
+.wallish-cross__back,
+.wallish-hub__back {
+  flex: none;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  padding: 7px 16px;
+  background: var(--paper-deep);
+  color: var(--ink);
+  box-shadow: 2px 3px 0 var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-clip__back:hover,
+.wallish-settings__back:hover,
+.wallish-custom__back:hover,
+.wallish-favorites__back:hover,
+.wallish-game__back:hover,
+.wallish-cross__back:hover,
+.wallish-hub__back:hover {
+  background: #fde68a;
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 4px 0 var(--ink);
+}
+
+.wallish-clip__back:active,
+.wallish-settings__back:active,
+.wallish-custom__back:active,
+.wallish-favorites__back:active,
+.wallish-game__back:active,
+.wallish-cross__back:active,
+.wallish-hub__back:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+/* 标题（各页面共用） */
+.wallish-clip__title,
+.wallish-custom__title,
+.wallish-favorites__title,
+.wallish-game__title,
+.wallish-cross__title,
+.wallish-hub__title {
+  margin: 0;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--ink-dark);
+}
+
+/* ── 看单词 ─────────────────────────────────────── */
 .wallish-clip {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #1f2a36;
 }
 
 .wallish-clip__bar {
@@ -172,34 +562,31 @@ body {
   gap: 12px;
   flex: none;
   box-sizing: border-box;
-  height: 52px;
-  padding: 0 16px;
+  height: 58px;
+  padding: 0 18px;
+  border-bottom: 2px dashed var(--line);
 }
 
-.wallish-clip__back {
-  border: 0;
-  border-radius: 999px;
-  padding: 8px 14px;
-  background: #3a3a3c;
-  color: #f2f2f7;
-  font: inherit;
-  cursor: pointer;
-}
-
-.wallish-clip__title {
+.wallish-clip__error {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
   margin: 0;
-  font-size: 18px;
-  font-weight: 650;
+  background-color: var(--paper);
+  color: #b3243b;
+  font-weight: 600;
 }
 
+/* ── 设置 ───────────────────────────────────────── */
 .wallish-settings {
   box-sizing: border-box;
   height: 100%;
   overflow: auto;
   padding: 18px 22px 28px;
-  background: #567a71;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+  scrollbar-color: rgba(56, 52, 47, 0.28) transparent;
 }
 
 .wallish-settings::-webkit-scrollbar {
@@ -213,7 +600,7 @@ body {
 .wallish-settings::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(56, 52, 47, 0.28);
   background-clip: padding-box;
 }
 
@@ -225,27 +612,21 @@ body {
 
 .wallish-settings__back {
   justify-self: start;
-  border: 0;
-  border-radius: 999px;
-  padding: 8px 14px;
-  background: #3a3a3c;
-  color: #f2f2f7;
-  font: inherit;
-  cursor: pointer;
 }
 
 .wallish-settings__title {
   margin: 0;
-  font-size: 28px;
-  font-weight: 650;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 34px;
+  font-weight: 700;
   text-align: center;
+  color: var(--ink-dark);
 }
 
 .wallish-settings__body {
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
 .wallish-settings__preview {
@@ -254,6 +635,10 @@ body {
   aspect-ratio: 16 / 9;
   margin-inline: auto;
   overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 var(--ink);
+  background: #2c2c2e;
 }
 
 .wallish-settings__preview .wallish-home__photo {
@@ -263,12 +648,21 @@ body {
   height: 100%;
 }
 
+.wallish-settings__panel {
+  margin-top: 18px;
+  padding: 14px 16px 16px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-radius);
+  background: var(--paper-soft);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
 .wallish-settings__hint,
 .wallish-settings__status {
   margin: 0;
-  color: #8e8e93;
+  color: var(--muted);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.55;
 }
 
 .wallish-settings__status {
@@ -278,8 +672,9 @@ body {
 
 .wallish-settings__label {
   margin: 16px 0 0;
-  color: #aeaeb2;
+  color: #524b42;
   font-size: 13px;
+  font-weight: 700;
 }
 
 .wallish-settings__toggle {
@@ -287,8 +682,9 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-top: 16px;
-  color: #f2f2f7;
+  color: var(--ink);
   font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -300,25 +696,27 @@ body {
 
 .wallish-settings__switch {
   position: relative;
-  width: 46px;
+  width: 48px;
   height: 28px;
+  border: 2px solid var(--ink);
   border-radius: 999px;
-  background: #3a3a3c;
+  background: #e0d7c6;
 }
 
 .wallish-settings__switch::after {
   content: "";
   position: absolute;
-  top: 3px;
-  left: 3px;
+  top: 1px;
+  left: 1px;
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #f2f2f7;
+  background: #fffdf8;
+  box-shadow: 1px 1px 0 var(--ink);
 }
 
 .wallish-settings__switch--on {
-  background: #8e8e93;
+  background: #fde68a;
 }
 
 .wallish-settings__switch--on::after {
@@ -339,27 +737,28 @@ body {
   gap: 6px;
   width: 52px;
   padding: 8px 0;
-  border: 0;
-  border-radius: 12px;
-  background: #2c2c2e;
-  color: #aeaeb2;
+  border: 2px solid var(--ink);
+  border-radius: 12px 7px 13px 8px / 8px 12px 7px 13px;
+  background: var(--paper-soft);
+  color: var(--muted);
   font: inherit;
   font-size: 11px;
   cursor: pointer;
 }
 
 .wallish-settings__place--on {
-  background: #3a3a3c;
-  color: #f2f2f7;
-  box-shadow: inset 0 0 0 1px #636366;
+  background: #fde68a;
+  color: var(--ink-dark);
+  box-shadow: 2px 2px 0 var(--ink);
 }
 
 .wallish-settings__mark {
   position: relative;
   width: 18px;
   height: 18px;
-  border-radius: 4px;
-  box-shadow: inset 0 0 0 1px currentColor;
+  border-radius: 5px;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 .wallish-settings__mark::after {
@@ -412,99 +811,99 @@ body {
 }
 
 .wallish-settings__picker {
-  width: 44px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  width: 48px;
+  height: 30px;
+  padding: 2px;
+  border: 2px solid var(--ink);
+  border-radius: 8px 5px 9px 6px / 6px 9px 5px 8px;
+  background: #fffdf8;
   cursor: pointer;
 }
 
 .wallish-settings__hex {
-  color: #f2f2f7;
+  color: var(--ink-dark);
+  font-family: "SFMono-Regular", Menlo, monospace;
   font-size: 13px;
   letter-spacing: 0.04em;
 }
 
 .wallish-settings__sizes {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
 }
 
 .wallish-settings__size {
   min-width: 52px;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: 12px;
-  background: #2c2c2e;
-  color: #aeaeb2;
+  padding: 7px 14px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: var(--paper-soft);
+  color: var(--muted);
   font: inherit;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-settings__size:hover {
+  background: #f3f0e4;
 }
 
 .wallish-settings__size--on {
-  background: #3a3a3c;
-  color: #f2f2f7;
-  box-shadow: inset 0 0 0 1px #636366;
+  background: #fde68a;
+  color: var(--ink-dark);
+  box-shadow: 2px 2px 0 var(--ink);
 }
 
 .wallish-settings__actions {
   display: flex;
   justify-content: center;
-  margin-top: 28px;
+  margin-top: 22px;
 }
 
 .wallish-settings__save {
   min-width: 180px;
-  border: 0;
-  border-radius: 999px;
-  padding: 12px 36px;
-  background: #5c3336;
-  color: #f2f2f7;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  padding: 11px 36px;
+  background: #93c5fd;
+  color: #1e3a8a;
+  box-shadow: 3px 4px 0 var(--ink);
   font: inherit;
+  font-size: 15px;
+  font-weight: 700;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-settings__save:hover:not(:disabled) {
+  background: #7dd3fc;
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 6px 0 var(--ink);
 }
 
 .wallish-settings__save:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: 0.5;
+  box-shadow: 2px 2px 0 var(--ink);
 }
 
+/* ── 自定义壁纸 ─────────────────────────────────── */
 .wallish-custom {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 16px 24px 32px;
+  padding: 16px 22px 30px;
 }
 
 .wallish-custom__bar {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.wallish-custom__back {
-  border: 0;
-  border-radius: 999px;
-  padding: 8px 14px;
-  background: #3a3a3c;
-  color: #f2f2f7;
-  font: inherit;
-  cursor: pointer;
-}
-
-.wallish-custom__button {
-  border: 0;
-  border-radius: 999px;
-  background: #34495e;
-  color: #ecf0f1;
-  font: inherit;
-  cursor: pointer;
-}
-
-.wallish-custom__title {
-  margin: 0;
-  font-size: 22px;
+  padding-bottom: 10px;
+  border-bottom: 2px dashed var(--line);
 }
 
 .wallish-custom__frame {
@@ -512,8 +911,10 @@ body {
   width: 100%;
   margin-top: 16px;
   overflow: hidden;
-  border-radius: 16px;
-  background: #2c3e50;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: #2c2c2e;
+  box-shadow: 3px 3px 0 var(--ink);
   touch-action: none;
 }
 
@@ -529,11 +930,18 @@ body {
   user-select: none;
 }
 
-.wallish-custom__name,
+.wallish-custom__name {
+  margin: 14px 0 0;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-dark);
+}
+
 .wallish-custom__hint,
 .wallish-custom__status {
-  margin: 12px 0 0;
-  color: #bdc3c7;
+  margin: 6px 0 0;
+  color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -541,16 +949,34 @@ body {
 .wallish-custom__actions {
   display: flex;
   gap: 12px;
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 .wallish-custom__button {
-  padding: 10px 18px;
+  padding: 10px 20px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: var(--paper-mid);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-custom__button:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 5px 0 var(--ink);
 }
 
 .wallish-custom__button--accent {
-  background: #f1c40f;
-  color: #1f2a36;
+  background: #93c5fd;
+  color: #1e3a8a;
+}
+
+.wallish-custom__button--accent:hover:not(:disabled) {
+  background: #7dd3fc;
 }
 
 .wallish-custom__button:disabled {
@@ -558,44 +984,40 @@ body {
   opacity: 0.6;
 }
 
+/* ── 收藏列表 ───────────────────────────────────── */
 .wallish-favorites {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 16px 24px 32px;
+  padding: 16px 22px 30px;
 }
 
 .wallish-favorites__bar {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.wallish-favorites__back {
-  border: 0;
-  border-radius: 999px;
-  padding: 8px 14px;
-  background: #3a3a3c;
-  color: #f2f2f7;
-  font: inherit;
-  cursor: pointer;
-}
-
-.wallish-favorites__title {
-  margin: 0;
-  font-size: 22px;
+  padding-bottom: 10px;
+  border-bottom: 2px dashed var(--line);
 }
 
 .wallish-favorites__list {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 14px;
   margin-top: 16px;
 }
 
 .wallish-favorites__card {
   overflow: hidden;
-  border-radius: 12px;
-  background: #2c3e50;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-radius);
+  background: var(--paper-soft);
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wallish-favorites__card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 var(--ink);
 }
 
 .wallish-favorites__pick {
@@ -614,20 +1036,24 @@ body {
   width: 100%;
   height: 96px;
   object-fit: cover;
-  background: #1f2a36;
+  background: #2c2c2e;
+  border-bottom: 2px solid var(--ink);
 }
 
 .wallish-favorites__thumb--empty {
   display: grid;
   place-items: center;
-  color: #7f8c8d;
+  color: #a89c88;
   font-size: 12px;
 }
 
 .wallish-favorites__word {
   margin: 0;
   padding: 8px 10px 0;
-  font-size: 14px;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink-dark);
 }
 
 .wallish-favorites__remove {
@@ -635,30 +1061,552 @@ body {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #e74c3c;
+  color: #b3243b;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
+.wallish-favorites__remove:hover {
+  text-decoration: underline;
+}
+
 .wallish-favorites__empty {
   margin: 24px 0 0;
-  color: #bdc3c7;
+  color: var(--muted);
   line-height: 1.5;
 }
 
-.wallish-home__link:disabled {
-  cursor: default;
-  opacity: 0.45;
+/* ── 填词游戏 ───────────────────────────────────── */
+.wallish-game {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 16px 22px 30px;
 }
 
-.wallish-clip__error {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
+.wallish-game__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 2px dashed var(--line);
+}
+
+.wallish-game__score {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: #dff3e1;
+  color: #1f6f43;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.wallish-game__intro,
+.wallish-cross__intro {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wallish-game__empty,
+.wallish-game__fail {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin-top: 28px;
+  color: var(--muted);
+}
+
+.wallish-game__fail p {
+  margin: 0;
+}
+
+.wallish-game__list {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.wallish-game__card {
+  padding: 12px 14px 14px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-radius);
+  background: var(--paper-soft);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.wallish-game__card--done {
+  background: #eaf7ee;
+  border-color: #2e7d4f;
+}
+
+.wallish-game__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wallish-game__index {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wallish-game__phone {
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-dark);
+}
+
+.wallish-game__clue {
+  margin: 6px 0 0;
+  color: #524b42;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wallish-game__cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.wallish-game__cell {
+  box-sizing: border-box;
+  width: 34px;
+  height: 42px;
+  border: 2px solid var(--ink);
+  border-radius: 8px 5px 9px 6px / 6px 9px 5px 8px;
+  background: #fffdf8;
+  color: var(--ink-dark);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  caret-color: var(--ink-dark);
+}
+
+.wallish-game__cell--fixed {
   display: grid;
   place-items: center;
+  background: #e6ddc9;
+  color: var(--muted);
+}
+
+.wallish-game__cell:focus {
+  outline: none;
+  box-shadow: 2px 2px 0 #5b8ec4;
+}
+
+.wallish-game__cell--wrong {
+  background: #fbdcd9;
+  border-color: #d2554a;
+  color: #b3243b;
+}
+
+.wallish-game__cell--hint {
+  border-color: #d9a800;
+  background: #fdf6d8;
+}
+
+.wallish-game__card--done .wallish-game__cell {
+  background: #dff3e1;
+  border-color: #2e7d4f;
+  color: #1f6f43;
+}
+
+.wallish-game__tools,
+.wallish-cross__tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.wallish-game__tool,
+.wallish-cross__tool {
+  padding: 6px 13px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: var(--paper-mid);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-game__tool:hover:not(:disabled),
+.wallish-cross__tool:hover:not(:disabled) {
+  background: #fde68a;
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.wallish-game__tool:disabled,
+.wallish-cross__tool:disabled {
+  cursor: default;
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.wallish-game__ok,
+.wallish-clueok {
+  color: #1f6f43;
+  font-size: 12px;
+}
+
+.wallish-game__give {
+  color: #9a6b1f;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.wallish-game__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.wallish-game__shuffle {
+  min-width: 160px;
+  padding: 10px 30px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: #93c5fd;
+  color: #1e3a8a;
+  box-shadow: 3px 4px 0 var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-game__shuffle:hover:not(:disabled) {
+  background: #7dd3fc;
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 6px 0 var(--ink);
+}
+
+.wallish-game__shuffle:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.wallish-game__done,
+.wallish-cross__won {
+  margin: 14px 0 0;
+  text-align: center;
+  color: #1f6f43;
+  font-weight: 700;
+}
+
+/* ── 填字游戏 ───────────────────────────────────── */
+.wallish-cross {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 16px 22px 30px;
+}
+
+.wallish-cross__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 2px dashed var(--line);
+}
+
+.wallish-cross__badge-score {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: #dff3e1;
+  color: #1f6f43;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.wallish-cross__empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin-top: 28px;
+  color: var(--muted);
+}
+
+.wallish-cross__layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.wallish-cross__boardwrap {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.wallish-cross__board {
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  padding: 6px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--paper-soft);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.wallish-cross__slot {
+  position: relative;
+  width: var(--cs, 28px);
+  height: var(--cs, 28px);
+  border-radius: 4px;
+  background: #fffdf8;
+  box-shadow: inset 0 0 0 1px #d8cfbc;
+}
+
+.wallish-cross__slot--block {
+  background-color: #ded4c0;
+  background-image: repeating-linear-gradient(45deg, #d5cab4, #d5cab4 4px, #e8dfcc 4px, #e8dfcc 8px);
+  box-shadow: none;
+}
+
+.wallish-cross__num {
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  color: #a89c88;
+  font-size: calc(var(--cs) * 0.3);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.wallish-cross__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 4px;
+  background: #fffdf8;
+  color: var(--ink-dark);
+  font-family: inherit;
+  font-size: calc(var(--cs) * 0.5);
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  caret-color: #b3243b;
+}
+
+.wallish-cross__input:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px #5b8ec4;
+}
+
+.wallish-cross__input--on {
+  background: #fdf3cf;
+}
+
+.wallish-cross__input--wrong {
+  background: #fbdcd9;
+  color: #b3243b;
+}
+
+.wallish-cross__input--hint {
+  box-shadow: inset 0 0 0 2px #d9a800;
+}
+
+.wallish-cross__letter {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: #fffdf8;
+  color: var(--ink-dark);
+  font-size: calc(var(--cs) * 0.5);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.wallish-cross__letter--ok {
+  background: #dff3e1;
+  color: #1f6f43;
+}
+
+.wallish-cross__stats {
+  flex: none;
+  display: grid;
+  gap: 10px;
+  width: 142px;
+}
+
+.wallish-cross__stat {
+  padding: 10px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 14px 7px 15px 8px / 8px 14px 7px 15px;
+  background: var(--paper-soft);
+  box-shadow: 2px 3px 0 var(--ink);
+}
+
+.wallish-cross__stat-label {
   margin: 0;
-  background: #1f2a36;
-  color: #e74c3c;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.wallish-cross__stat-value {
+  margin: 2px 0 0;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink-dark);
+}
+
+.wallish-cross__stat-value small {
+  color: #8a8175;
+  font-family: "PingFang SC", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.wallish-cross__stat-value--bad {
+  color: #c0392b;
+}
+
+.wallish-cross__stat-value--good {
+  color: #1f6f43;
+}
+
+.wallish-cross__clues {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.wallish-cross__cluecol {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-radius);
+  background: var(--paper-soft);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.wallish-cross__cluetitle {
+  margin: 0 0 8px;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-dark);
+}
+
+.wallish-cross__clue {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wallish-cross__clue b {
+  color: #9a6b1f;
+  font-weight: 700;
+}
+
+.wallish-cross__clue:hover {
+  background: #f0e7d6;
+}
+
+.wallish-cross__clue--done {
+  color: #9a9384;
+  text-decoration: line-through;
+}
+
+.wallish-cross__clue--done b {
+  color: #9a9384;
+  text-decoration: none;
+}
+
+/* ── 游戏聚合页 ─────────────────────────────────── */
+.wallish-hub {
+  box-sizing: border-box;
+  min-height: 100%;
+}
+
+.wallish-hub__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 22px 12px;
+  border-bottom: 2px dashed var(--line);
+}
+
+.wallish-hub__tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: #e8dfcd;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.wallish-hub__tab {
+  border: 0;
+  border-radius: var(--sketch-pill);
+  padding: 6px 18px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wallish-hub__tab--on {
+  background: #93c5fd;
+  color: #1e3a8a;
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.wallish-hub__body {
+  padding: 14px 22px 30px;
+}
+
+.wallish-game--embedded,
+.wallish-cross--embedded {
+  padding: 0;
+  min-height: 0;
 }
