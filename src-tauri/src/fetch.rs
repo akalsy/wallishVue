@@ -217,6 +217,189 @@ fn to_quiz_word(word: &QwertyWord) -> QuizWord {
     }
 }
 
+/// 查单词：一条词目的完整信息（音标、英美发音、词性释义、词形、双语例句）。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictEntry {
+    pub word: String,
+    pub phonetic: String,
+    pub uk_audio: String,
+    pub us_audio: String,
+    pub senses: Vec<DictSense>,
+    pub forms: Vec<DictForm>,
+    pub examples: Vec<DictExample>,
+    pub web_url: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictSense {
+    pub pos: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictForm {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictExample {
+    pub en: String,
+    pub zh: String,
+}
+
+fn encode_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// 把 "vt. 疏忽，漏做" 拆成 ("vt.", "疏忽，漏做")；没有词性前缀时 pos 为空。
+fn split_pos(text: &str) -> (String, String) {
+    let trimmed = text.trim();
+    let mut head = 0usize;
+    for (index, ch) in trimmed.char_indices() {
+        if ch.is_ascii_alphabetic() || ch == '&' || ch == '/' {
+            head = index + ch.len_utf8();
+        } else if ch == ' ' {
+            continue;
+        } else if ch == '.' && head > 0 {
+            return (trimmed[..head].to_string(), trimmed[index + 1..].trim().to_string());
+        } else {
+            break;
+        }
+    }
+    (String::new(), trimmed.to_string())
+}
+
+fn collect_text(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) => {
+            let clean = strip_tags(text);
+            if !clean.is_empty() {
+                out.push(clean);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|item| collect_text(item, out)),
+        _ => {}
+    }
+}
+
+fn parse_dict(query: &str, value: &serde_json::Value) -> DictEntry {
+    let first = &value["ec"]["word"][0];
+    let word = first["return-phrase"].as_str().unwrap_or(query).trim().to_string();
+    let word = if word.is_empty() { query.trim().to_string() } else { word };
+    let uk = first["ukphone"].as_str().unwrap_or_default().trim().to_string();
+    let us = first["usphone"].as_str().unwrap_or_default().trim().to_string();
+    let phonetic = if uk.is_empty() { us.clone() } else { uk.clone() };
+
+    let mut senses: Vec<DictSense> = Vec::new();
+    if let Some(rows) = first["trs"].as_array() {
+        let mut lines = Vec::new();
+        for row in rows {
+            if let Some(items) = row["tr"].as_array() {
+                items.iter().for_each(|item| collect_text(&item["l"]["i"], &mut lines));
+            }
+        }
+        for line in lines {
+            let (pos, text) = split_pos(&line);
+            if text.is_empty() {
+                continue;
+            }
+            if senses.iter().any(|item| item.pos == pos && item.text == text) {
+                continue;
+            }
+            senses.push(DictSense { pos, text });
+        }
+    }
+
+    let mut forms: Vec<DictForm> = Vec::new();
+    if let Some(items) = first["wfs"].as_array() {
+        for item in items {
+            let name = item["wf"]["name"].as_str().unwrap_or_default().trim().to_string();
+            let value = item["wf"]["value"].as_str().unwrap_or_default().trim().to_string();
+            if name.is_empty() || value.is_empty() || forms.iter().any(|form| form.value == value) {
+                continue;
+            }
+            forms.push(DictForm { name, value });
+        }
+    }
+
+    let mut examples: Vec<DictExample> = Vec::new();
+    if let Some(pairs) = value["blng_sents_part"]["sentence-pair"].as_array() {
+        for pair in pairs.iter().take(4) {
+            let en = strip_tags(pair["sentence"].as_str().unwrap_or_default());
+            if en.is_empty() {
+                continue;
+            }
+            let zh = strip_tags(pair["sentence-translation"].as_str().unwrap_or_default());
+            if !examples.iter().any(|item| item.en == en) {
+                examples.push(DictExample { en, zh });
+            }
+        }
+    }
+    if examples.is_empty() {
+        if let Some(items) = value["auth_sents_part"]["sent"].as_array() {
+            for item in items.iter().take(3) {
+                let en = strip_tags(item["foreign"].as_str().unwrap_or_default());
+                if !en.is_empty() && !examples.iter().any(|pair| pair.en == en) {
+                    examples.push(DictExample { en, zh: String::new() });
+                }
+            }
+        }
+    }
+
+    let encoded = encode_component(&word);
+    DictEntry {
+        uk_audio: format!("https://dict.youdao.com/dictvoice?audio={encoded}&type=1"),
+        us_audio: format!("https://dict.youdao.com/dictvoice?audio={encoded}&type=2"),
+        web_url: format!("https://dict.youdao.com/result?word={encoded}&lang=en"),
+        word,
+        phonetic,
+        senses,
+        forms,
+        examples,
+    }
+}
+
+pub async fn fetch_dict(word: &str) -> Result<DictEntry, String> {
+    let query = word.trim();
+    if query.is_empty() {
+        return Err("先输入一个单词".into());
+    }
+    let url = format!(
+        "https://dict.youdao.com/jsonapi?q={}&keyfrom=mac.main&client=6&vendor=app&app=web",
+        encode_component(query)
+    );
+    let response = client()
+        .get(url)
+        .timeout(Duration::from_secs(12))
+        .send()
+        .await
+        .map_err(|err| format!("词典连不上（{err}）"))?;
+    if !response.status().is_success() {
+        return Err("词典服务暂时不可用".into());
+    }
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|_| "词典返回的数据读不懂".to_string())?;
+    let entry = parse_dict(query, &value);
+    if entry.senses.is_empty() && entry.examples.is_empty() {
+        return Err(format!("没有查到 {query}"));
+    }
+    Ok(entry)
+}
+
 /// 给填字游戏抽词：整表下载一次，随机抽 count 个不重复的条目（不含短语）。
 pub async fn fetch_quiz_words(level: &str, count: usize) -> Result<Vec<QuizWord>, String> {
     let url = format!(

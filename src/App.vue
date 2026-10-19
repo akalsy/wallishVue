@@ -1,11 +1,11 @@
 <script setup>
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { computed, onMounted, ref } from "vue";
 import { applyPlate, errorText } from "./api.js";
 import ClipPage from "./components/ClipPage.vue";
 import CustomPreview from "./components/CustomPreview.vue";
+import DictionaryPage from "./components/DictionaryPage.vue";
 import FavoritesPage from "./components/FavoritesPage.vue";
 import GameHub from "./components/GameHub.vue";
 import SettingsPage from "./components/SettingsPage.vue";
@@ -17,6 +17,7 @@ const settingsOpen = ref(false);
 const customPreview = ref(null);
 const favoritesOpen = ref(false);
 const gameOpen = ref(false);
+const dictOpen = ref(false);
 const favorites = ref([]);
 const busy = ref(false);
 const saving = ref(false);
@@ -205,17 +206,20 @@ async function backHome() {
 }
 
 function openDictionary() {
-  if (snapshot.value && snapshot.value.dictionaryUrl) {
-    openUrl(snapshot.value.dictionaryUrl).catch((err) => {
-      error.value = errorText(err, "打不开词典");
-    });
-  }
+  dictOpen.value = true;
+  settingsOpen.value = false;
+  favoritesOpen.value = false;
 }
 </script>
 
 <template>
   <ClipPage v-if="clip" :word="clip.word" @back="backHome" />
   <GameHub v-else-if="gameOpen" :level="level" @back="gameOpen = false" />
+  <DictionaryPage
+    v-else-if="dictOpen"
+    :word="(snapshot && snapshot.word) || ''"
+    @back="dictOpen = false"
+  />
   <FavoritesPage
     v-else-if="favoritesOpen"
     :items="favorites"
@@ -357,7 +361,7 @@ function openDictionary() {
         </span>
         <span class="wallish-home__optlabel">收藏列表</span>
       </button>
-      <button v-if="snapshot && snapshot.dictionaryUrl" class="wallish-home__opt" type="button" @click="openDictionary">
+      <button class="wallish-home__opt" type="button" @click="openDictionary">
         <span class="wallish-home__opticon wallish-home__opticon--search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="11" cy="11" r="8" />

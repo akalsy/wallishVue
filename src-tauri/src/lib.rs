@@ -637,6 +637,11 @@ async fn quiz_words(state: State<'_, AppState>, count: Option<usize>) -> Result<
 }
 
 #[tauri::command]
+async fn lookup_word(word: String) -> Result<fetch::DictEntry, String> {
+    fetch::fetch_dict(&word).await
+}
+
+#[tauri::command]
 async fn publish_jpeg(app: AppHandle, state: State<'_, AppState>, jpeg_base64: String) -> Result<ViewState, String> {
     let dir = app_dir(&app)?;
     let bytes = decode_jpeg(&jpeg_base64)?;
@@ -1096,6 +1101,7 @@ pub fn run() {
             set_word_level,
             set_wallpaper_source,
             quiz_words,
+            lookup_word,
             preview_wallpaper,
             confirm_wallpaper,
             list_favorites,

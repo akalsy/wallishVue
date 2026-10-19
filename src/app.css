@@ -481,6 +481,7 @@ body {
 .wallish-settings,
 .wallish-custom,
 .wallish-favorites,
+.wallish-dict,
 .wallish-game,
 .wallish-cross,
 .wallish-hub {
@@ -495,6 +496,7 @@ body {
 .wallish-settings__back,
 .wallish-custom__back,
 .wallish-favorites__back,
+.wallish-dict__back,
 .wallish-game__back,
 .wallish-cross__back,
 .wallish-hub__back {
@@ -516,6 +518,7 @@ body {
 .wallish-settings__back:hover,
 .wallish-custom__back:hover,
 .wallish-favorites__back:hover,
+.wallish-dict__back:hover,
 .wallish-game__back:hover,
 .wallish-cross__back:hover,
 .wallish-hub__back:hover {
@@ -528,6 +531,7 @@ body {
 .wallish-settings__back:active,
 .wallish-custom__back:active,
 .wallish-favorites__back:active,
+.wallish-dict__back:active,
 .wallish-game__back:active,
 .wallish-cross__back:active,
 .wallish-hub__back:active {
@@ -539,6 +543,7 @@ body {
 .wallish-clip__title,
 .wallish-custom__title,
 .wallish-favorites__title,
+.wallish-dict__title,
 .wallish-game__title,
 .wallish-cross__title,
 .wallish-hub__title {
@@ -1075,6 +1080,306 @@ body {
   margin: 24px 0 0;
   color: var(--muted);
   line-height: 1.5;
+}
+
+/* ── 查单词 ───────────────────────────────────── */
+.wallish-dict {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 16px 22px 30px;
+}
+
+.wallish-dict__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 2px dashed var(--line);
+}
+
+.wallish-dict__search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.wallish-dict__field {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 14px 7px 15px 8px / 8px 14px 7px 15px;
+  background: var(--paper-soft);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink-dark);
+  font: inherit;
+  font-size: 15px;
+}
+
+.wallish-dict__field::placeholder {
+  color: #a89c88;
+}
+
+.wallish-dict__field:focus {
+  outline: none;
+  border-color: #b45309;
+}
+
+.wallish-dict__go {
+  flex: none;
+  padding: 10px 22px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: #93c5fd;
+  color: #1e3a8a;
+  box-shadow: 3px 3px 0 var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+}
+
+.wallish-dict__go:hover:not(:disabled) {
+  background: #7dd3fc;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.wallish-dict__go:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.wallish-dict__history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.wallish-dict__chip {
+  padding: 4px 12px;
+  border: 1px solid var(--ink);
+  border-radius: 12px 18px 14px 10px / 16px 12px 15px 11px;
+  background: var(--paper-soft);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wallish-dict__chip:hover {
+  background: #fde68a;
+  color: var(--ink-dark);
+}
+
+.wallish-dict__hint {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.wallish-dict__card {
+  position: relative;
+  margin-top: 16px;
+  padding: 16px 18px 18px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-radius);
+  background: var(--paper-soft);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.wallish-dict__tape {
+  position: absolute;
+  top: -9px;
+  width: 54px;
+  height: 18px;
+  border-left: 2px dashed rgba(180, 160, 120, 0.5);
+  border-right: 2px dashed rgba(180, 160, 120, 0.5);
+  background-color: rgba(243, 228, 192, 0.9);
+  transform: rotate(-3deg);
+}
+
+.wallish-dict__tape--left {
+  left: 22px;
+}
+
+.wallish-dict__tape--right {
+  right: 22px;
+  transform: rotate(4deg);
+}
+
+.wallish-dict__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wallish-dict__word {
+  margin: 0;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink-dark);
+  overflow-wrap: anywhere;
+}
+
+.wallish-dict__sounds {
+  display: flex;
+  gap: 6px;
+}
+
+.wallish-dict__sound {
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper-mid);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wallish-dict__sound:hover {
+  background: #fde68a;
+}
+
+.wallish-dict__phone {
+  margin: 6px 0 0;
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid #c0b5a3;
+  border-radius: 6px;
+  background: var(--paper-mid);
+  color: #4a4339;
+  font-family: "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+}
+
+.wallish-dict__forms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wallish-dict__form {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--paper-mid);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wallish-dict__form em {
+  font-style: normal;
+  color: #8c8273;
+}
+
+.wallish-dict__form strong {
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 16px;
+  color: var(--ink-dark);
+}
+
+.wallish-dict__senses {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wallish-dict__sense {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px dashed #ddd4c2;
+}
+
+.wallish-dict__pos {
+  flex: none;
+  min-width: 34px;
+  padding: 1px 7px;
+  border: 1px solid var(--ink);
+  border-radius: 10px 16px 12px 8px / 14px 10px 15px 11px;
+  background: #fdf6d8;
+  color: #8a5a12;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.wallish-dict__text {
+  color: #3c372f;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.wallish-dict__examples {
+  margin-top: 16px;
+}
+
+.wallish-dict__label {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.wallish-dict__example {
+  padding: 8px 0;
+  border-top: 1px dashed #ddd4c2;
+}
+
+.wallish-dict__en {
+  margin: 0;
+  font-family: "Caveat", "PingFang SC", sans-serif;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink-dark);
+}
+
+.wallish-dict__zh {
+  margin: 3px 0 0;
+  color: #4a4339;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.wallish-dict__foot {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.wallish-dict__link {
+  padding: 8px 18px;
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch-pill);
+  background: var(--paper-mid);
+  color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wallish-dict__link:hover {
+  background: #fde68a;
 }
 
 /* ── 填词游戏 ───────────────────────────────────── */
