@@ -3,6 +3,7 @@ mod image_ops;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -351,12 +352,24 @@ fn wallpaper_size(window: &tauri::Window) -> (u32, u32) {
 }
 
 fn set_mac_wallpaper(dir: &Path, image: &Path) -> Result<PathBuf, String> {
-    if cfg!(not(target_os = "macos")) {
-        return Err("这版试用只会在 macOS 上更换桌面壁纸".into());
-    }
     let millis = SystemTime::now().duration_since(UNIX_EPOCH).map(|time| time.as_millis()).unwrap_or(0);
     let shown = dir.join(format!("wallpaper_show_{millis}.jpg"));
     fs::copy(image, &shown).map_err(|err| err.to_string())?;
+    set_desktop_wallpaper(&shown)?;
+    if let Ok(names) = fs::read_dir(dir) {
+        for name in names.flatten() {
+            let path = name.path();
+            let file_name = path.file_name().and_then(|item| item.to_str()).unwrap_or("");
+            if file_name.starts_with("wallpaper_show_") && path != shown {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    Ok(shown)
+}
+
+#[cfg(target_os = "macos")]
+fn set_desktop_wallpaper(shown: &Path) -> Result<(), String> {
     let script = format!(
         "tell application \"System Events\" to set picture of every desktop to POSIX file \"{}\"",
         shown.display().to_string().replace('"', "\\\"")
@@ -370,16 +383,52 @@ fn set_mac_wallpaper(dir: &Path, image: &Path) -> Result<PathBuf, String> {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if detail.is_empty() { "设置桌面失败".into() } else { detail });
     }
-    if let Ok(names) = fs::read_dir(dir) {
-        for name in names.flatten() {
-            let path = name.path();
-            let file_name = path.file_name().and_then(|item| item.to_str()).unwrap_or("");
-            if file_name.starts_with("wallpaper_show_") && path != shown {
-                let _ = fs::remove_file(path);
-            }
-        }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn set_desktop_wallpaper(shown: &Path) -> Result<(), String> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn SystemParametersInfoW(
+            ui_action: u32,
+            ui_param: u32,
+            pv_param: *mut c_void,
+            ui_win_ini: u32,
+        ) -> i32;
     }
-    Ok(shown)
+
+    // SPI_SETDESKWALLPAPER 会把 .jpg/.bmp 等位图设为桌面背景，Windows 10/11 均支持 jpg。
+    const SPI_SETDESKWALLPAPER: u32 = 20;
+    // UPDATEINIFILE 写注册表持久化，SENDCHANGE 广播 WM_SETTINGCHANGE 让桌面立即刷新。
+    const SPIF_UPDATEINIFILE: u32 = 0x01;
+    const SPIF_SENDCHANGE: u32 = 0x02;
+
+    let wide: Vec<u16> = std::ffi::OsStr::new(shown)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let ok = unsafe {
+        SystemParametersInfoW(
+            SPI_SETDESKWALLPAPER,
+            0,
+            wide.as_ptr() as *mut c_void,
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
+        )
+    };
+    if ok == 0 {
+        Err("设置桌面失败".into())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn set_desktop_wallpaper(_shown: &Path) -> Result<(), String> {
+    Err("这版试用只会在 macOS 和 Windows 上更换桌面壁纸".into())
 }
 
 fn plate_from_clean(dir: &Path, saved: &SavedState, clean: &Path) -> Result<Plate, String> {
