@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+/// 分级词库是整份 JSON（可达数 MB），jsdelivr 有时很慢，给足超时。
+const DICT_TIMEOUT_SECS: u64 = 60;
+
 #[derive(Clone, Debug, Default)]
 pub struct LevelWord {
     pub word: String,
@@ -97,6 +100,77 @@ fn client() -> reqwest::Client {
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
+fn proxy_client() -> Option<reqwest::Client> {
+    let proxy = detected_proxy()?;
+    let proxy = reqwest::Proxy::all(&proxy).ok()?;
+    reqwest::Client::builder()
+        .user_agent(UA)
+        .proxy(proxy)
+        .build()
+        .ok()
+}
+
+/// 有的源只能直连（Picsum 走代理反而失败），有的必须走代理（Wallhaven/NASA）。
+/// 这里按来源决定先直连还是先代理，失败再换另一条，两条都失败才算失败。
+async fn request(url: &str, timeout_secs: u64, prefer_proxy: bool) -> Result<reqwest::Response, String> {
+    let direct = client();
+    let proxied = proxy_client();
+    let mut tries: Vec<reqwest::Client> = Vec::new();
+    if prefer_proxy {
+        if let Some(proxy) = &proxied {
+            tries.push(proxy.clone());
+        }
+        tries.push(direct);
+    } else {
+        tries.push(direct);
+        if let Some(proxy) = &proxied {
+            tries.push(proxy.clone());
+        }
+    }
+    let mut last = "网络请求失败".to_string();
+    for candidate in tries {
+        match candidate.get(url).timeout(Duration::from_secs(timeout_secs)).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    return Ok(response);
+                }
+                last = format!("HTTP {}", response.status());
+            }
+            Err(err) => last = err.to_string(),
+        }
+    }
+    Err(last)
+}
+
+/// macOS 上系统代理开着时 reqwest 不会自动走，浏览器却会，导致"浏览器能开、App 连不上"。
+/// 这里先认环境变量，再探测本机常见的 Clash/Surge 混合代理端口，探测结果缓存一次。
+fn detected_proxy() -> Option<String> {
+    use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+    use std::sync::OnceLock;
+    use std::time::Duration;
+
+    static CACHE: OnceLock<Option<String>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            for key in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy"] {
+                if let Ok(value) = std::env::var(key) {
+                    let value = value.trim();
+                    if !value.is_empty() {
+                        return Some(value.to_string());
+                    }
+                }
+            }
+            for port in [7897u16, 7890, 7891, 6152, 6153, 8889, 10808] {
+                let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+                if TcpStream::connect_timeout(&addr, Duration::from_millis(120)).is_ok() {
+                    return Some(format!("http://127.0.0.1:{port}"));
+                }
+            }
+            None
+        })
+        .clone()
+}
+
 fn now_micros() -> u64 {
     // macOS 时钟只到微秒，subsec_nanos 总是 1000 的倍数，对 8 取模恒为 0，会一直选中今天。
     SystemTime::now()
@@ -154,10 +228,7 @@ pub async fn fetch_level_word(level: &str) -> Result<LevelWord, String> {
         "https://cdn.jsdelivr.net/gh/Kaiyiwing/qwerty-learner@master/public/dicts/{}",
         level_file(level)
     );
-    let list: Vec<QwertyWord> = client()
-        .get(url)
-        .timeout(Duration::from_secs(25))
-        .send()
+    let list: Vec<QwertyWord> = request(&url, DICT_TIMEOUT_SECS, false)
         .await
         .map_err(|err| format!("词库下载失败（{err}）"))?
         .json()
@@ -406,10 +477,7 @@ pub async fn fetch_quiz_words(level: &str, count: usize) -> Result<Vec<QuizWord>
         "https://cdn.jsdelivr.net/gh/Kaiyiwing/qwerty-learner@master/public/dicts/{}",
         level_file(level)
     );
-    let list: Vec<QwertyWord> = client()
-        .get(url)
-        .timeout(Duration::from_secs(25))
-        .send()
+    let list: Vec<QwertyWord> = request(&url, DICT_TIMEOUT_SECS, false)
         .await
         .map_err(|err| format!("词库下载失败（{err}）"))?
         .json()
@@ -468,12 +536,9 @@ struct BingEntry {
 /// Bing 每日壁纸，免 key。`count` 越大越能拿到前几天。
 pub async fn list_bing(count: u8) -> Vec<Wallpaper> {
     let url = format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n={count}&mkt=zh-CN");
-    let Ok(response) = client().get(url).timeout(Duration::from_secs(8)).send().await else {
+    let Ok(response) = request(&url, 8, false).await else {
         return Vec::new();
     };
-    if !response.status().is_success() {
-        return Vec::new();
-    }
     let Ok(info) = response.json::<BingArchive>().await else {
         return Vec::new();
     };
@@ -498,28 +563,20 @@ struct WallhavenResp {
 #[derive(Deserialize)]
 struct WallhavenItem {
     path: Option<String>,
-    uploader: Option<WallhavenUploader>,
+    resolution: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct WallhavenUploader {
-    username: Option<String>,
-}
-
-/// Wallhaven 壁纸站，免 key（purity=100 仅安全图）。
+/// Wallhaven 壁纸站，免 key（purity=100 仅安全图）。图片直链在 `path`（w.wallhaven.cc）。
 pub async fn list_wallhaven(count: u8) -> Vec<Wallpaper> {
-    let seed = format!("{:x}", now_micros());
-    let seed = &seed[seed.len().saturating_sub(6)..];
+    let raw = format!("{:x}", now_micros());
+    let seed = &raw[raw.len().saturating_sub(6)..];
     let url = format!(
         "https://wallhaven.cc/api/v1/search?categories=111&purity=100&ratios=16x9&sorting=random&atleast=1920x1080&per_page={}&seed={seed}",
         count.clamp(1, 24)
     );
-    let Ok(response) = client().get(url).timeout(Duration::from_secs(12)).send().await else {
+    let Ok(response) = request(&url, 15, true).await else {
         return Vec::new();
     };
-    if !response.status().is_success() {
-        return Vec::new();
-    }
     let Ok(info) = response.json::<WallhavenResp>().await else {
         return Vec::new();
     };
@@ -528,13 +585,13 @@ pub async fn list_wallhaven(count: u8) -> Vec<Wallpaper> {
         .into_iter()
         .filter_map(|item| {
             let path = item.path?;
-            let uploader = item.uploader.and_then(|value| value.username).unwrap_or_default();
+            let resolution = item.resolution.unwrap_or_default();
             Some(Wallpaper {
                 url: path,
-                copyright: if uploader.is_empty() {
+                copyright: if resolution.is_empty() {
                     "Wallhaven".into()
                 } else {
-                    format!("Wallhaven · {uploader}")
+                    format!("Wallhaven · {resolution}")
                 },
             })
         })
@@ -551,12 +608,9 @@ struct PicsumItem {
 pub async fn list_picsum(count: u8) -> Vec<Wallpaper> {
     let page = (now_micros() % 30) + 1;
     let url = format!("https://picsum.photos/v2/list?page={page}&limit={}", count.clamp(1, 100));
-    let Ok(response) = client().get(url).timeout(Duration::from_secs(10)).send().await else {
+    let Ok(response) = request(&url, 10, false).await else {
         return Vec::new();
     };
-    if !response.status().is_success() {
-        return Vec::new();
-    }
     let Ok(list) = response.json::<Vec<PicsumItem>>().await else {
         return Vec::new();
     };
@@ -612,16 +666,11 @@ pub fn find_clean<'a>(images: &'a [Wallpaper], copyright: &str, today: bool) -> 
     chosen.map(|image| image.url.as_str())
 }
 
-pub async fn download_bytes(url: &str, timeout_secs: u64) -> Result<Vec<u8>, String> {
-    let response = client()
-        .get(url)
-        .timeout(Duration::from_secs(timeout_secs))
-        .send()
+/// 下载壁纸并确保是 JPEG：webp/png 等会用 image crate 转码，兼容 alcy(webp)、Wallhaven(png) 等。
+pub async fn download_image(url: &str, timeout_secs: u64, prefer_proxy: bool) -> Result<Vec<u8>, String> {
+    let response = request(url, timeout_secs, prefer_proxy)
         .await
         .map_err(|err| format!("图片下载失败（{err}）"))?;
-    if !response.status().is_success() {
-        return Err(format!("图片下载失败（HTTP {}）", response.status()));
-    }
     let bytes = response
         .bytes()
         .await
@@ -630,7 +679,12 @@ pub async fn download_bytes(url: &str, timeout_secs: u64) -> Result<Vec<u8>, Str
     if bytes.len() < 1000 {
         return Err("图片下载失败（内容为空）".into());
     }
-    Ok(bytes)
+    if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        return Ok(bytes);
+    }
+    let image = crate::image_ops::open_image(&bytes)?;
+    let image = crate::image_ops::limit_edge(image);
+    crate::image_ops::to_jpeg(&image, 90)
 }
 
 /// 旧版把壁纸来源写进 EXIF，非 ASCII 会被转义。读取历史数据时还原一下。

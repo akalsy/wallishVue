@@ -6,6 +6,7 @@ const props = defineProps({
   box: { type: Object, required: true },
   level: { type: String, default: "cet4" },
   wallpaperSource: { type: String, default: "auto" },
+  wordRefresh: { type: Number, default: 30 },
   saving: { type: Boolean, default: false },
   error: { type: String, default: "" },
 });
@@ -23,6 +24,12 @@ const sizes = [
   { id: "medium", label: "中" },
   { id: "large", label: "大" },
 ];
+const refreshes = [
+  { id: 0, label: "关闭" },
+  { id: 15, label: "15 分钟" },
+  { id: 30, label: "30 分钟" },
+  { id: 60, label: "1 小时" },
+];
 const levels = [
   { id: "cet4", label: "四级" },
   { id: "cet6", label: "六级" },
@@ -32,13 +39,15 @@ const levels = [
   { id: "gre", label: "GRE" },
 ];
 const sources = [
-  { id: "auto", label: "自动" },
-  { id: "wallhaven", label: "壁纸站" },
-  { id: "bing", label: "必应" },
-  { id: "picsum", label: "随拍" },
+  { id: "auto", label: "自动", proxy: false },
+  { id: "bing", label: "必应", proxy: false },
+  { id: "photo", label: "风景图", proxy: false },
+  { id: "anime", label: "二次元", proxy: false },
+  { id: "picsum", label: "随拍", proxy: false },
+  { id: "wallhaven", label: "壁纸站", proxy: true },
 ];
 
-const draft = ref({ ...props.box, level: props.level, wallpaperSource: props.wallpaperSource });
+const draft = ref({ ...props.box, level: props.level, wallpaperSource: props.wallpaperSource, wordRefresh: props.wordRefresh });
 const hidden = computed(() => draft.value.caption === false);
 const dirty = computed(() => {
   const left = draft.value;
@@ -49,7 +58,8 @@ const dirty = computed(() => {
     left.size !== right.size ||
     (left.caption !== false) !== (right.caption !== false) ||
     left.level !== props.level ||
-    left.wallpaperSource !== props.wallpaperSource
+    left.wallpaperSource !== props.wallpaperSource ||
+    Number(left.wordRefresh) !== Number(props.wordRefresh)
   );
 });
 
@@ -83,6 +93,19 @@ function patch(part) {
             {{ item.label }}
           </button>
         </div>
+        <p class="wallish-settings__label">词条自动更新</p>
+        <div class="wallish-settings__sizes">
+          <button
+            v-for="item in refreshes"
+            :key="item.id"
+            :class="Number(draft.wordRefresh) === item.id ? 'wallish-settings__size wallish-settings__size--on' : 'wallish-settings__size'"
+            type="button"
+            @click="patch({ wordRefresh: item.id })"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <p class="wallish-settings__hint">到点自动换一个新词（桌面壁纸上的单词会更新，需应用保持运行）。</p>
         <p class="wallish-settings__label">壁纸来源</p>
         <div class="wallish-settings__sizes">
           <button
@@ -93,9 +116,10 @@ function patch(part) {
             @click="patch({ wallpaperSource: item.id })"
           >
             {{ item.label }}
+            <span v-if="item.proxy" class="wallish-settings__proxy">需代理</span>
           </button>
         </div>
-        <p class="wallish-settings__hint">自动=壁纸站→必应→随拍依次尝试；壁纸站(Wallhaven)与随拍(Picsum)可能需科学上网。改完下次换壁纸生效。</p>
+        <p class="wallish-settings__hint">标「需代理」的源（壁纸站）需开着代理才能用；其余可直连。自动=必应→风景图→二次元→壁纸站→随拍，谁先成功用谁。改完下次换壁纸生效。</p>
         <label class="wallish-settings__toggle">
           <span>不显示词条</span>
           <input

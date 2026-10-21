@@ -1,7 +1,7 @@
 <script setup>
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { applyPlate, errorText } from "./api.js";
 import ClipPage from "./components/ClipPage.vue";
 import CustomPreview from "./components/CustomPreview.vue";
@@ -22,6 +22,11 @@ const favorites = ref([]);
 const busy = ref(false);
 const saving = ref(false);
 const error = ref("");
+
+const WORD_REFRESH_KEY = "wordRefreshMinutes";
+const rawRefresh = window.localStorage.getItem(WORD_REFRESH_KEY);
+const parsedRefresh = rawRefresh === null ? 30 : Number(rawRefresh);
+const wordRefresh = ref(Number.isFinite(parsedRefresh) && parsedRefresh >= 0 ? parsedRefresh : 30);
 
 const wordBox = computed(() => (snapshot.value && snapshot.value.wordBox) || defaultBox);
 const level = computed(() => (snapshot.value && snapshot.value.level) || "cet4");
@@ -60,6 +65,35 @@ async function acceptPlate(plate) {
   error.value = next && next.error ? next.error : "";
 }
 
+// 定时换新词条（换壁纸的绘制/合成在前端，所以定时器放这里）。间隔由设置决定，0 表示关闭。
+let wordTimer = null;
+
+async function refreshWord() {
+  if (!snapshot.value || busy.value || saving.value) {
+    return;
+  }
+  if (settingsOpen.value || customPreview.value || favoritesOpen.value || dictOpen.value || gameOpen.value || clip.value) {
+    return;
+  }
+  try {
+    await acceptPlate(await invoke("set_word_level", { level: level.value }));
+  } catch (err) {
+    // 定时更新失败不打断用户，等下一轮再试。
+  }
+}
+
+function armWordTimer() {
+  if (wordTimer) {
+    window.clearInterval(wordTimer);
+    wordTimer = null;
+  }
+  const minutes = Number(wordRefresh.value);
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return;
+  }
+  wordTimer = window.setInterval(refreshWord, minutes * 60 * 1000);
+}
+
 onMounted(async () => {
   try {
     snapshot.value = await invoke("get_state");
@@ -72,6 +106,14 @@ onMounted(async () => {
       busy.value = false;
     });
   });
+  armWordTimer();
+});
+
+onUnmounted(() => {
+  if (wordTimer) {
+    window.clearInterval(wordTimer);
+    wordTimer = null;
+  }
 });
 
 async function changeWallpaper(random) {
@@ -171,13 +213,18 @@ async function saveWordBox(draft) {
   saving.value = true;
   error.value = "";
   try {
-    const { level: nextLevel, wallpaperSource: nextSource, ...wordBox } = draft;
+    const { level: nextLevel, wallpaperSource: nextSource, wordRefresh: nextRefresh, ...wordBox } = draft;
     await acceptPlate(await invoke("set_word_box", { wordBox }));
     if (nextLevel && nextLevel !== level.value) {
       await acceptPlate(await invoke("set_word_level", { level: nextLevel }));
     }
     if (nextSource && nextSource !== wallpaperSource.value) {
       snapshot.value = await invoke("set_wallpaper_source", { source: nextSource });
+    }
+    if (Number(nextRefresh) !== wordRefresh.value) {
+      wordRefresh.value = Number(nextRefresh);
+      window.localStorage.setItem(WORD_REFRESH_KEY, String(wordRefresh.value));
+      armWordTimer();
     }
   } catch (err) {
     error.value = errorText(err, "设置没有保存");
@@ -245,6 +292,7 @@ function openDictionary() {
     :box="wordBox"
     :level="level"
     :wallpaper-source="wallpaperSource"
+    :word-refresh="wordRefresh"
     :saving="saving"
     :error="error"
     @save="saveWordBox"

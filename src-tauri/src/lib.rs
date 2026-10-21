@@ -58,9 +58,14 @@ fn default_source() -> String {
 
 fn normalize_source(source: &str) -> String {
     match source {
-        "auto" | "wallhaven" | "bing" | "picsum" => source.to_string(),
+        "auto" | "photo" | "anime" | "wallhaven" | "bing" | "picsum" => source.to_string(),
         _ => default_source(),
     }
+}
+
+/// 判断某个下载地址是否更适合走代理（离线补下载时用，避免先干等直连超时）。
+fn url_prefers_proxy(url: &str) -> bool {
+    url.contains("wallhaven")
 }
 
 fn normalize_word_box(value: &serde_json::Value) -> WordBox {
@@ -497,7 +502,7 @@ async fn ensure_clean(dir: &Path, saved: &SavedState) -> Result<PathBuf, String>
             .ok_or_else(|| "这张壁纸不在最近 8 天里".to_string())?
             .to_string()
     };
-    let bytes = fetch::download_bytes(&url, 15).await?;
+    let bytes = fetch::download_image(&url, 25, url_prefers_proxy(&url)).await?;
     let part = dir.join("wallpaper-clean.jpg.part");
     fs::write(&part, &bytes).map_err(|err| err.to_string())?;
     fs::rename(&part, &clean).map_err(|err| err.to_string())?;
@@ -518,6 +523,7 @@ async fn fetch_past_photo(
     avoid_copyright: &str,
     avoid_url: &str,
     previous: &[u8],
+    prefer_proxy: bool,
 ) -> Result<(String, String, Vec<u8>), String> {
     let first = fetch::pick_recent(images, copyright, avoid_copyright, avoid_url)
         .ok_or_else(|| "没有可用的壁纸".to_string())?;
@@ -528,7 +534,7 @@ async fn fetch_past_photo(
         if !avoid_url.is_empty() && image.url == avoid_url {
             continue;
         }
-        let Ok(bytes) = fetch::download_bytes(&image.url, 15).await else {
+        let Ok(bytes) = fetch::download_image(&image.url, 30, prefer_proxy).await else {
             continue;
         };
         if fallback.is_none() {
@@ -555,11 +561,11 @@ async fn try_provider(
                 if images.is_empty() {
                     return Err("Bing 没有返回壁纸".into());
                 }
-                fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous).await
+                fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous, false).await
             } else {
                 let images = fetch::list_bing(1).await;
                 let image = images.first().ok_or_else(|| "Bing 没有返回壁纸".to_string())?;
-                let bytes = fetch::download_bytes(&image.url, 15).await?;
+                let bytes = fetch::download_image(&image.url, 15, false).await?;
                 Ok((image.url.clone(), image.copyright.clone(), bytes))
             }
         }
@@ -568,14 +574,30 @@ async fn try_provider(
             if images.is_empty() {
                 return Err("Wallhaven 没有返回壁纸".into());
             }
-            fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous).await
+            fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous, true).await
+        }
+        "photo" => {
+            // alcy 的 /fj 是风景摄影；/pc 是混合 PC 壁纸(含二次元/游戏)，不能拿来当"风景图"。
+            const ENDPOINTS: [&str; 1] = ["https://t.alcy.cc/fj"];
+            for endpoint in ENDPOINTS {
+                if let Ok(bytes) = fetch::download_image(endpoint, 15, false).await {
+                    return Ok((endpoint.to_string(), "风景图 · alcy.cc".into(), bytes));
+                }
+            }
+            Err("风景图源没有返回壁纸".into())
+        }
+        "anime" => {
+            match fetch::download_image("https://www.loliapi.com/acg/", 15, false).await {
+                Ok(bytes) => Ok(("https://www.loliapi.com/acg/".to_string(), "二次元 · loliapi".into(), bytes)),
+                Err(_) => Err("二次元源没有返回壁纸".into()),
+            }
         }
         "picsum" => {
             let images = fetch::list_picsum(30).await;
             if images.is_empty() {
                 return Err("Picsum 没有返回壁纸".into());
             }
-            fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous).await
+            fetch_past_photo(&images, "", avoid_copyright, avoid_url, previous, false).await
         }
         _ => Err("未知的壁纸来源".into()),
     }
@@ -589,10 +611,12 @@ async fn pick_wallpaper(
     previous: &[u8],
 ) -> Result<(String, String, Vec<u8>), String> {
     let providers: &[&str] = match source {
-        "wallhaven" => &["wallhaven"],
+        "photo" => &["photo"],
+        "anime" => &["anime"],
         "bing" => &["bing"],
+        "wallhaven" => &["wallhaven"],
         "picsum" => &["picsum"],
-        _ => &["wallhaven", "bing", "picsum"],
+        _ => &["bing", "photo", "anime", "wallhaven", "picsum"],
     };
     let mut first_error = None;
     for provider in providers {
@@ -1081,6 +1105,23 @@ fn spawn_switch(app: &AppHandle, random: bool) {
     });
 }
 
+/// 托盘「更换词条」：用当前等级抽一个新词，复用 set_word_level 后把 plate 推给前端重绘。
+fn spawn_word(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let level = state.core.lock().await.saved.level.clone();
+        match set_word_level(app.clone(), state, level).await {
+            Ok(plate) => {
+                let _ = app.emit("plate", plate);
+            }
+            Err(err) => {
+                app.dialog().message(err).title("更换词条").blocking_show();
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1104,8 +1145,9 @@ pub fn run() {
             let show = tauri::menu::MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
             let today = tauri::menu::MenuItem::with_id(app, "today", "今日壁纸", true, None::<&str>)?;
             let past = tauri::menu::MenuItem::with_id(app, "past", "切换往日壁纸", true, None::<&str>)?;
+            let word = tauri::menu::MenuItem::with_id(app, "word", "更换词条", true, None::<&str>)?;
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = tauri::menu::Menu::with_items(app, &[&show, &today, &past, &quit])?;
+            let menu = tauri::menu::Menu::with_items(app, &[&show, &today, &past, &word, &quit])?;
             let mut tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
                 .tooltip("Wallish")
@@ -1113,6 +1155,7 @@ pub fn run() {
                     "show" => show_main(app),
                     "today" => spawn_switch(app, false),
                     "past" => spawn_switch(app, true),
+                    "word" => spawn_word(app),
                     "quit" => {
                         QUITTING.store(true, Ordering::SeqCst);
                         app.exit(0);
