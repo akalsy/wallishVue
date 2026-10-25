@@ -54,7 +54,14 @@ body {
   color: #38342f;
 }
 
-.wallish-home__settings {
+.wallish-home__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wallish-home__settings,
+.wallish-home__quit {
   flex: none;
   width: 34px;
   height: 34px;
@@ -66,7 +73,8 @@ body {
   cursor: pointer;
 }
 
-.wallish-home__settings:hover {
+.wallish-home__settings:hover,
+.wallish-home__quit:hover {
   background: #eadecc;
 }
 
@@ -74,7 +82,12 @@ body {
   background: #fde68a;
 }
 
-.wallish-home__settings svg {
+.wallish-home__quit:active {
+  background: #f3c4b6;
+}
+
+.wallish-home__settings svg,
+.wallish-home__quit svg {
   display: block;
   width: 100%;
   height: 100%;
@@ -317,7 +330,7 @@ body {
 /* 三个主操作按钮 */
 .wallish-home__actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
@@ -880,6 +893,8 @@ body {
 .wallish-settings__actions {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 14px;
   margin-top: 22px;
 }
 

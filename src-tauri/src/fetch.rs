@@ -41,6 +41,9 @@ struct QwertyWord {
     usphone: Option<String>,
     #[serde(default)]
     ukphone: Option<String>,
+    /// 日语词库里的表记（假名/汉字），如「番号(ばんごう)」「ひまわり」。
+    #[serde(default)]
+    notation: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -186,8 +189,28 @@ fn level_file(level: &str) -> &'static str {
         "ielts" => "IELTS_3_T.json",
         "toefl" => "TOEFL_3_T.json",
         "gre" => "GRE_3_T.json",
+        "jp-n5" => "JapVocabList.N5_zh.json",
+        "jp-n4" => "JapVocabList.N4_zh.json",
+        "jp-n3" => "JapVocabList.N3_zh.json",
+        "jp-n2" => "JapVocabList.N2_zh.json",
+        "jp-n1" => "JapVocabList.N1_zh.json",
         _ => "CET4_T.json",
     }
+}
+
+/// 去掉假名注音括号：「番号(ばんごう)」→「番号」，「男(おとこ)の子(こ)」→「男の子」。
+fn strip_furigana(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut depth = 0u32;
+    for ch in text.chars() {
+        match ch {
+            '(' | '（' => depth += 1,
+            ')' | '）' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(ch),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
 }
 
 /// 用有道的免费接口给单词取一句双语例句，返回 [英文, 中文]（拿不到中文时只返回英文）。
@@ -238,6 +261,35 @@ pub async fn fetch_level_word(level: &str) -> Result<LevelWord, String> {
         return Err("词库是空的".into());
     }
     let word = &list[now_micros() as usize % list.len()];
+
+    if level.starts_with("jp-") {
+        let raw = word
+            .notation
+            .clone()
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or_else(|| word.name.clone());
+        let display = strip_furigana(&raw);
+        let reading = word.name.trim();
+        let title = if reading.is_empty() || reading == display {
+            display.clone()
+        } else {
+            format!("{}  /{}/", display, reading)
+        };
+        let mut lines = vec![title];
+        for text in word.trans.iter().take(2) {
+            let text = text.trim();
+            if !text.is_empty() {
+                lines.push(text.to_string());
+            }
+        }
+        return Ok(LevelWord {
+            word: display.clone(),
+            dictionary_url: format!("https://jisho.org/search/{}", display),
+            audio_url: String::new(),
+            lines,
+        });
+    }
+
     let phone = word
         .usphone
         .clone()
@@ -728,7 +780,7 @@ pub fn restore_exif_text(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{pick_recent, restore_exif_text, Wallpaper};
+    use super::{pick_recent, restore_exif_text, strip_furigana, Wallpaper};
 
     fn sample() -> Vec<Wallpaper> {
         (0..8)
@@ -755,5 +807,13 @@ mod tests {
         let escaped = r"\xe7\xb2\x89\xe7\xba\xa2\xe8\x89\xb2\xe7\x9a\x84\xe8\x8b\xb9\xe6\x9e\x9c\xe8\x8a\xb1, \xe9\x98\xbf\xe7\xbb\xb4\xe6\x8b\x89\xe6\xb5\xb7\xe6\xbb\xa9, \xe5\x8a\xa0\xe5\x88\xa9\xe7\xa6\x8f\xe5\xb0\xbc\xe4\xba\x9a\xe5\xb7\x9e, \xe7\xbe\x8e\xe5\x9b\xbd";
         assert_eq!(restore_exif_text(escaped), raw);
         assert_eq!(restore_exif_text("scarlet"), "scarlet");
+    }
+
+    #[test]
+    fn furigana_is_stripped() {
+        assert_eq!(strip_furigana("男(おとこ)の子(こ)"), "男の子");
+        assert_eq!(strip_furigana("番号(ばんごう)"), "番号");
+        assert_eq!(strip_furigana("ひまわり"), "ひまわり");
+        assert_eq!(strip_furigana("会(あ)う"), "会う");
     }
 }

@@ -22,6 +22,7 @@ const favorites = ref([]);
 const busy = ref(false);
 const saving = ref(false);
 const error = ref("");
+const autostart = ref(false);
 
 const WORD_REFRESH_KEY = "wordRefreshMinutes";
 const rawRefresh = window.localStorage.getItem(WORD_REFRESH_KEY);
@@ -32,7 +33,7 @@ const wordBox = computed(() => (snapshot.value && snapshot.value.wordBox) || def
 const level = computed(() => (snapshot.value && snapshot.value.level) || "cet4");
 const wallpaperSource = computed(() => (snapshot.value && snapshot.value.wallpaperSource) || "auto");
 
-const LEVEL_LABELS = { cet4: "四级", cet6: "六级", kaoyan: "考研", ielts: "雅思", toefl: "托福", gre: "GRE" };
+const LEVEL_LABELS = { cet4: "四级", cet6: "六级", kaoyan: "考研", ielts: "雅思", toefl: "托福", gre: "GRE", "jp-n5": "日语 N5", "jp-n4": "日语 N4", "jp-n3": "日语 N3", "jp-n2": "日语 N2", "jp-n1": "日语 N1" };
 const SOURCE_LABELS = { bing: "Bing 每日壁纸", wallhaven: "Wallhaven", picsum: "Lorem Picsum" };
 
 const levelLabel = computed(() => LEVEL_LABELS[level.value] || level.value);
@@ -99,6 +100,11 @@ onMounted(async () => {
     snapshot.value = await invoke("get_state");
   } catch (err) {
     error.value = errorText(err, "没有读到当前壁纸");
+  }
+  try {
+    autostart.value = await invoke("get_autostart");
+  } catch (err) {
+    autostart.value = false;
   }
   listen("plate", (event) => {
     acceptPlate(event.payload).catch((err) => {
@@ -209,17 +215,28 @@ async function removeFavorite(id) {
   }
 }
 
+async function quitApp() {
+  try {
+    await invoke("quit_app");
+  } catch (err) {
+    error.value = errorText(err, "没有退出");
+  }
+}
+
 async function saveWordBox(draft) {
   saving.value = true;
   error.value = "";
   try {
-    const { level: nextLevel, wallpaperSource: nextSource, wordRefresh: nextRefresh, ...wordBox } = draft;
+    const { level: nextLevel, wallpaperSource: nextSource, wordRefresh: nextRefresh, autostart: nextAutostart, ...wordBox } = draft;
     await acceptPlate(await invoke("set_word_box", { wordBox }));
     if (nextLevel && nextLevel !== level.value) {
       await acceptPlate(await invoke("set_word_level", { level: nextLevel }));
     }
     if (nextSource && nextSource !== wallpaperSource.value) {
       snapshot.value = await invoke("set_wallpaper_source", { source: nextSource });
+    }
+    if (Boolean(nextAutostart) !== Boolean(autostart.value)) {
+      autostart.value = await invoke("set_autostart", { enabled: Boolean(nextAutostart) });
     }
     if (Number(nextRefresh) !== wordRefresh.value) {
       wordRefresh.value = Number(nextRefresh);
@@ -293,6 +310,7 @@ function openDictionary() {
     :level="level"
     :wallpaper-source="wallpaperSource"
     :word-refresh="wordRefresh"
+    :autostart="autostart"
     :saving="saving"
     :error="error"
     @save="saveWordBox"
@@ -301,18 +319,26 @@ function openDictionary() {
   <main v-else class="wallish-home">
     <header class="wallish-home__header">
       <p class="wallish-home__brand">WALLISH</p>
-      <button class="wallish-home__settings" type="button" title="设置" aria-label="设置" @click="settingsOpen = true">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path fill="none" stroke="currentColor" stroke-width="1.6" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
-          <path
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linejoin="round"
-            d="M19.4 13.5a7.7 7.7 0 0 0 .1-1.5 7.7 7.7 0 0 0-.1-1.5l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-2.6-1.5L14 2h-4l-.4 2.5a7.4 7.4 0 0 0-2.6 1.5l-2.4-1-2 3.4 2 1.6a7.7 7.7 0 0 0-.1 1.5 7.7 7.7 0 0 0 .1 1.5l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 2.6 1.5L10 22h4l.4-2.5a7.4 7.4 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.6Z"
-          />
-        </svg>
-      </button>
+      <div class="wallish-home__tools">
+        <button class="wallish-home__quit" type="button" title="退出应用" aria-label="退出应用" @click="quitApp">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 3.5v8" />
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M7.2 6.4a7.4 7.4 0 1 0 9.6 0" />
+          </svg>
+        </button>
+        <button class="wallish-home__settings" type="button" title="设置" aria-label="设置" @click="settingsOpen = true">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="1.6" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linejoin="round"
+              d="M19.4 13.5a7.7 7.7 0 0 0 .1-1.5 7.7 7.7 0 0 0-.1-1.5l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-2.6-1.5L14 2h-4l-.4 2.5a7.4 7.4 0 0 0-2.6 1.5l-2.4-1-2 3.4 2 1.6a7.7 7.7 0 0 0-.1 1.5 7.7 7.7 0 0 0 .1 1.5l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 2.6 1.5L10 22h4l.4-2.5a7.4 7.4 0 0 0 2.6-1.5l2.4 1 2-3.4-2-1.6Z"
+            />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <section class="wallish-home__wordbar">
@@ -365,14 +391,7 @@ function openDictionary() {
     <p v-if="error" class="wallish-home__error">{{ error }}</p>
 
     <div class="wallish-home__actions">
-      <button class="wallish-home__button wallish-home__button--today" type="button" :disabled="busy" @click="changeWallpaper(false)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-        </svg>
-        <span>今日壁纸</span>
-      </button>
-      <button class="wallish-home__button wallish-home__button--past" type="button" :disabled="busy" @click="changeWallpaper(true)">
+      <button class="wallish-home__button wallish-home__button--today" type="button" :disabled="busy" @click="changeWallpaper(true)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.8-1.1 2-1.7 3.3-1.7H22" />
           <path d="m18 2 4 4-4 4" />
@@ -380,7 +399,7 @@ function openDictionary() {
           <path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8" />
           <path d="m18 14 4 4-4 4" />
         </svg>
-        <span>切换往日</span>
+        <span>随机壁纸</span>
       </button>
       <button class="wallish-home__button wallish-home__button--custom" type="button" :disabled="busy" @click="chooseWallpaper">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

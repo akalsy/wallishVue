@@ -7,6 +7,7 @@ const props = defineProps({
   level: { type: String, default: "cet4" },
   wallpaperSource: { type: String, default: "auto" },
   wordRefresh: { type: Number, default: 30 },
+  autostart: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
   error: { type: String, default: "" },
 });
@@ -37,6 +38,11 @@ const levels = [
   { id: "ielts", label: "雅思" },
   { id: "toefl", label: "托福" },
   { id: "gre", label: "GRE" },
+  { id: "jp-n5", label: "日语N5" },
+  { id: "jp-n4", label: "日语N4" },
+  { id: "jp-n3", label: "日语N3" },
+  { id: "jp-n2", label: "日语N2" },
+  { id: "jp-n1", label: "日语N1" },
 ];
 const sources = [
   { id: "auto", label: "自动", proxy: false },
@@ -47,7 +53,7 @@ const sources = [
   { id: "wallhaven", label: "壁纸站", proxy: true },
 ];
 
-const draft = ref({ ...props.box, level: props.level, wallpaperSource: props.wallpaperSource, wordRefresh: props.wordRefresh });
+const draft = ref({ ...props.box, level: props.level, wallpaperSource: props.wallpaperSource, wordRefresh: props.wordRefresh, autostart: props.autostart });
 const hidden = computed(() => draft.value.caption === false);
 const dirty = computed(() => {
   const left = draft.value;
@@ -59,7 +65,8 @@ const dirty = computed(() => {
     (left.caption !== false) !== (right.caption !== false) ||
     left.level !== props.level ||
     left.wallpaperSource !== props.wallpaperSource ||
-    Number(left.wordRefresh) !== Number(props.wordRefresh)
+    Number(left.wordRefresh) !== Number(props.wordRefresh) ||
+    Boolean(left.autostart) !== Boolean(props.autostart)
   );
 });
 
@@ -162,6 +169,17 @@ function patch(part) {
             </button>
           </div>
         </template>
+        <label class="wallish-settings__toggle">
+          <span>开机自动启动</span>
+          <input
+            class="wallish-settings__check"
+            type="checkbox"
+            :checked="Boolean(draft.autostart)"
+            @change="patch({ autostart: $event.target.checked })"
+          />
+          <span :class="draft.autostart ? 'wallish-settings__switch wallish-settings__switch--on' : 'wallish-settings__switch'" />
+        </label>
+        <p class="wallish-settings__hint">开机后在后台自动运行（不弹窗口），方便每天自动换壁纸；从托盘菜单可以打开或退出。</p>
       </div>
     </div>
     <div class="wallish-settings__actions">

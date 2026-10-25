@@ -47,7 +47,9 @@ fn default_level() -> String {
 
 fn normalize_level(level: &str) -> String {
     match level {
-        "cet4" | "cet6" | "kaoyan" | "ielts" | "toefl" | "gre" => level.to_string(),
+        "cet4" | "cet6" | "kaoyan" | "ielts" | "toefl" | "gre" | "jp-n5" | "jp-n4" | "jp-n3" | "jp-n2" | "jp-n1" => {
+            level.to_string()
+        }
         _ => default_level(),
     }
 }
@@ -682,6 +684,27 @@ async fn set_wallpaper_source(app: AppHandle, state: State<'_, AppState>, source
 }
 
 #[tauri::command]
+fn quit_app(app: AppHandle) {
+    QUITTING.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
+#[tauri::command]
+fn get_autostart(app: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    let result = if enabled { manager.enable() } else { manager.disable() };
+    result.map_err(|err| err.to_string())?;
+    manager.is_enabled().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 async fn set_word_level(app: AppHandle, state: State<'_, AppState>, level: String) -> Result<Plate, String> {
     let dir = app_dir(&app)?;
     let mut core = state.core.lock().await;
@@ -1125,6 +1148,10 @@ fn spawn_word(app: &AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
@@ -1142,14 +1169,42 @@ pub fn run() {
                     core.saved = saved;
                 };
             }
+            // 开机自启时静默驻留托盘，不弹窗口。
+            if std::env::args().any(|arg| arg == "--autostart") {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            } else if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+            }
             let show = tauri::menu::MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
             let today = tauri::menu::MenuItem::with_id(app, "today", "今日壁纸", true, None::<&str>)?;
             let past = tauri::menu::MenuItem::with_id(app, "past", "切换往日壁纸", true, None::<&str>)?;
             let word = tauri::menu::MenuItem::with_id(app, "word", "更换词条", true, None::<&str>)?;
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&show, &today, &past, &word, &quit])?;
+
+            // 窗口菜单栏单独建一套菜单项：muda 的一个菜单项只能挂在一个菜单上，
+            // 复用同一批 item 会让托盘菜单变空（Windows 上右键就没「退出」了）。
+            #[cfg(not(target_os = "macos"))]
+            {
+                let a_show = tauri::menu::MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
+                let a_today = tauri::menu::MenuItem::with_id(app, "today", "今日壁纸", true, None::<&str>)?;
+                let a_past = tauri::menu::MenuItem::with_id(app, "past", "切换往日壁纸", true, None::<&str>)?;
+                let a_word = tauri::menu::MenuItem::with_id(app, "word", "更换词条", true, None::<&str>)?;
+                let a_quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+                let file_menu = tauri::menu::Submenu::with_items(
+                    app,
+                    "文件",
+                    true,
+                    &[&a_show, &a_today, &a_past, &a_word, &a_quit],
+                )?;
+                let app_menu = tauri::menu::Menu::with_items(app, &[&file_menu])?;
+                app.set_menu(app_menu)?;
+            }
             let mut tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
+                .show_menu_on_left_click(false)
                 .tooltip("Wallish")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main(app),
@@ -1192,6 +1247,9 @@ pub fn run() {
             set_word_box,
             set_word_level,
             set_wallpaper_source,
+            get_autostart,
+            set_autostart,
+            quit_app,
             quiz_words,
             lookup_word,
             preview_wallpaper,
