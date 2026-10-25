@@ -1184,24 +1184,9 @@ pub fn run() {
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&show, &today, &past, &word, &quit])?;
 
-            // 窗口菜单栏单独建一套菜单项：muda 的一个菜单项只能挂在一个菜单上，
-            // 复用同一批 item 会让托盘菜单变空（Windows 上右键就没「退出」了）。
-            #[cfg(not(target_os = "macos"))]
-            {
-                let a_show = tauri::menu::MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
-                let a_today = tauri::menu::MenuItem::with_id(app, "today", "今日壁纸", true, None::<&str>)?;
-                let a_past = tauri::menu::MenuItem::with_id(app, "past", "切换往日壁纸", true, None::<&str>)?;
-                let a_word = tauri::menu::MenuItem::with_id(app, "word", "更换词条", true, None::<&str>)?;
-                let a_quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-                let file_menu = tauri::menu::Submenu::with_items(
-                    app,
-                    "文件",
-                    true,
-                    &[&a_show, &a_today, &a_past, &a_word, &a_quit],
-                )?;
-                let app_menu = tauri::menu::Menu::with_items(app, &[&file_menu])?;
-                app.set_menu(app_menu)?;
-            }
+            // 这些操作只放在托盘右键菜单里，千万别再给窗口设「文件」菜单栏：
+            // Windows 上一旦 app.set_menu 把窗口菜单装上去，托盘右键的 TrackPopupMenu
+            // 会直接返回，整个托盘菜单弹不出来（实测）。
             let mut tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -1218,7 +1203,12 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         show_main(tray.app_handle());
                     }
                 });
